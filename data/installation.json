@@ -1,0 +1,8 @@
+{
+  "installed": false,
+  "schemaVersion": "1.0.0",
+  "installedAt": null,
+  "setupVersion": "1.0.0",
+  "deploymentMode": "self-hosted",
+  "demoDataInitialized": false
+}

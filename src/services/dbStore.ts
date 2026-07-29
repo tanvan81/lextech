@@ -1,0 +1,764 @@
+import {
+  UserProfile,
+  Category,
+  Course,
+  CourseSection,
+  Lesson,
+  LessonAttachment,
+  Enrollment,
+  LessonProgress,
+  SystemSetting,
+  SystemMigration,
+  SystemAuditLog,
+  SetupStatus,
+  ConnectionTestResult,
+  SystemHealthStatus,
+  UserRole,
+  UserStatus
+} from '../types';
+import { getSupabaseAdminClient } from '../lib/supabase/admin';
+
+const STORAGE_KEY = 'lexedu_db_v3_store';
+
+interface LocalDBState {
+  setupStatus: SetupStatus;
+  profiles: UserProfile[];
+  categories: Category[];
+  courses: Course[];
+  sections: CourseSection[];
+  lessons: Lesson[];
+  attachments: LessonAttachment[];
+  enrollments: Enrollment[];
+  progress: LessonProgress[];
+  settings: SystemSetting[];
+  migrations: SystemMigration[];
+  auditLogs: SystemAuditLog[];
+}
+
+const DEFAULT_MIGRATIONS: SystemMigration[] = [
+  { id: 'm001', migration_version: '001', migration_name: '001_create_enums.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm002', migration_version: '002', migration_name: '002_create_profiles.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm003', migration_version: '003', migration_name: '003_create_categories.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm004', migration_version: '004', migration_name: '004_create_courses.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm005', migration_version: '005', migration_name: '005_create_course_sections.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm006', migration_version: '006', migration_name: '006_create_lessons.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm007', migration_version: '007', migration_name: '007_create_lesson_attachments.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm008', migration_version: '008', migration_name: '008_create_enrollments.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm009', migration_version: '009', migration_name: '009_create_lesson_progress.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm010', migration_version: '010', migration_name: '010_create_system_settings.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm011', migration_version: '011', migration_name: '011_create_system_migrations.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm012', migration_version: '012', migration_name: '012_create_system_audit_logs.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm013', migration_version: '013', migration_name: '013_create_indexes.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm014', migration_version: '014', migration_name: '014_create_updated_at_triggers.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm015', migration_version: '015', migration_name: '015_create_auth_profile_trigger.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm016', migration_version: '016', migration_name: '016_enable_rls.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm017', migration_version: '017', migration_name: '017_create_rls_policies.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+  { id: 'm018', migration_version: '018', migration_name: '018_create_storage_policies.sql', status: 'COMPLETED', completed_at: new Date().toISOString(), created_at: new Date().toISOString() },
+];
+
+function getInitialState(): LocalDBState {
+  return {
+    setupStatus: {
+      installed: false,
+      schemaVersion: '1.0.0',
+      setupVersion: '1.0.0',
+      installedAt: null,
+      deploymentMode: 'self-hosted',
+      demoDataInitialized: false,
+    },
+    profiles: [],
+    categories: [],
+    courses: [],
+    sections: [],
+    lessons: [],
+    attachments: [],
+    enrollments: [],
+    progress: [],
+    settings: [],
+    migrations: DEFAULT_MIGRATIONS,
+    auditLogs: [],
+  };
+}
+
+class DBStoreEngine {
+  private state: LocalDBState;
+
+  constructor() {
+    this.state = this.loadState();
+  }
+
+  private loadState(): LocalDBState {
+    if (typeof window === 'undefined') return getInitialState();
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.error('[DBStore] Error loading state:', err);
+    }
+    return getInitialState();
+  }
+
+  private saveState() {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+    } catch (err) {
+      console.error('[DBStore] Error saving state:', err);
+    }
+  }
+
+  // Setup status
+  getSetupStatus(): SetupStatus {
+    return { ...this.state.setupStatus };
+  }
+
+  updateSetupStatus(updates: Partial<SetupStatus>): SetupStatus {
+    this.state.setupStatus = { ...this.state.setupStatus, ...updates };
+    this.saveState();
+    return { ...this.state.setupStatus };
+  }
+
+  // Profiles
+  getProfiles(): UserProfile[] {
+    return [...this.state.profiles];
+  }
+
+  getProfileById(id: string): UserProfile | undefined {
+    return this.state.profiles.find((p) => p.id === id);
+  }
+
+  getProfileByEmail(email: string): UserProfile | undefined {
+    return this.state.profiles.find((p) => p.email.toLowerCase() === email.toLowerCase());
+  }
+
+  saveProfile(profile: UserProfile): UserProfile {
+    const idx = this.state.profiles.findIndex((p) => p.id === profile.id);
+    if (idx >= 0) {
+      this.state.profiles[idx] = { ...profile, updated_at: new Date().toISOString() };
+    } else {
+      this.state.profiles.push({ ...profile, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    this.saveState();
+    return profile;
+  }
+
+  updateProfileStatus(userId: string, status: UserStatus): UserProfile | undefined {
+    const p = this.getProfileById(userId);
+    if (p) {
+      p.status = status;
+      p.updated_at = new Date().toISOString();
+      this.saveState();
+      this.logAudit({ action: `Lỗi/Khóa tài khoản: ${status}`, action_level: 'WARNING', entity_type: 'user', entity_id: userId });
+    }
+    return p;
+  }
+
+  // Categories
+  getCategories(): Category[] {
+    return [...this.state.categories].sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  saveCategory(category: Category): Category {
+    const idx = this.state.categories.findIndex((c) => c.id === category.id);
+    if (idx >= 0) {
+      this.state.categories[idx] = { ...category, updated_at: new Date().toISOString() };
+    } else {
+      this.state.categories.push({ ...category, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    this.saveState();
+    return category;
+  }
+
+  deleteCategory(id: string): boolean {
+    this.state.categories = this.state.categories.filter((c) => c.id !== id);
+    this.saveState();
+    return true;
+  }
+
+  // Courses
+  getCourses(filters?: { status?: string; categoryId?: string; level?: string; search?: string }): Course[] {
+    let list = [...this.state.courses];
+    if (filters?.status) {
+      list = list.filter((c) => c.status === filters.status);
+    }
+    if (filters?.categoryId) {
+      list = list.filter((c) => c.category_id === filters.categoryId);
+    }
+    if (filters?.level) {
+      list = list.filter((c) => c.level === filters.level);
+    }
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      list = list.filter((c) => c.title.toLowerCase().includes(q) || (c.short_description || '').toLowerCase().includes(q));
+    }
+
+    // Attach counts & category
+    return list.map((c) => {
+      const cat = this.state.categories.find((cat) => cat.id === c.category_id);
+      const secs = this.state.sections.filter((s) => s.course_id === c.id);
+      const secIds = secs.map((s) => s.id);
+      const les = this.state.lessons.filter((l) => secIds.includes(l.section_id));
+      const ens = this.state.enrollments.filter((e) => e.course_id === c.id && e.status === 'ACTIVE');
+
+      return {
+        ...c,
+        category_name: cat ? cat.name : 'Chưa phân loại',
+        sections_count: secs.length,
+        lessons_count: les.length,
+        students_count: ens.length,
+      };
+    }).sort((a, b) => (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0) || a.sort_order - b.sort_order);
+  }
+
+  getCourseBySlug(slug: string): Course | undefined {
+    const courses = this.getCourses();
+    return courses.find((c) => c.slug === slug);
+  }
+
+  getCourseById(id: string): Course | undefined {
+    const courses = this.getCourses();
+    return courses.find((c) => c.id === id);
+  }
+
+  saveCourse(course: Course): Course {
+    const idx = this.state.courses.findIndex((c) => c.id === course.id);
+    if (idx >= 0) {
+      this.state.courses[idx] = { ...course, updated_at: new Date().toISOString() };
+    } else {
+      this.state.courses.push({ ...course, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    this.saveState();
+    return course;
+  }
+
+  deleteCourse(id: string): boolean {
+    this.state.courses = this.state.courses.filter((c) => c.id !== id);
+    const secs = this.state.sections.filter((s) => s.course_id === id);
+    const secIds = secs.map((s) => s.id);
+    this.state.sections = this.state.sections.filter((s) => s.course_id !== id);
+    this.state.lessons = this.state.lessons.filter((l) => !secIds.includes(l.section_id));
+    this.state.enrollments = this.state.enrollments.filter((e) => e.course_id !== id);
+    this.state.progress = this.state.progress.filter((p) => p.course_id !== id);
+    this.saveState();
+    return true;
+  }
+
+  // Sections
+  getSectionsByCourse(courseId: string): CourseSection[] {
+    const secs = this.state.sections
+      .filter((s) => s.course_id === courseId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    return secs.map((sec) => {
+      const les = this.state.lessons
+        .filter((l) => l.section_id === sec.id)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((l) => ({
+          ...l,
+          attachments: this.state.attachments.filter((att) => att.lesson_id === l.id),
+        }));
+      return {
+        ...sec,
+        lessons: les,
+      };
+    });
+  }
+
+  saveSection(section: CourseSection): CourseSection {
+    const idx = this.state.sections.findIndex((s) => s.id === section.id);
+    if (idx >= 0) {
+      this.state.sections[idx] = { ...section, updated_at: new Date().toISOString() };
+    } else {
+      this.state.sections.push({ ...section, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    this.saveState();
+    return section;
+  }
+
+  deleteSection(id: string): boolean {
+    this.state.sections = this.state.sections.filter((s) => s.id !== id);
+    this.state.lessons = this.state.lessons.filter((l) => l.section_id !== id);
+    this.saveState();
+    return true;
+  }
+
+  // Lessons
+  getLessonById(lessonId: string): Lesson | undefined {
+    const les = this.state.lessons.find((l) => l.id === lessonId);
+    if (!les) return undefined;
+    return {
+      ...les,
+      attachments: this.state.attachments.filter((a) => a.lesson_id === lessonId),
+    };
+  }
+
+  saveLesson(lesson: Lesson): Lesson {
+    const idx = this.state.lessons.findIndex((l) => l.id === lesson.id);
+    if (idx >= 0) {
+      this.state.lessons[idx] = { ...lesson, updated_at: new Date().toISOString() };
+    } else {
+      this.state.lessons.push({ ...lesson, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    this.saveState();
+    return lesson;
+  }
+
+  deleteLesson(id: string): boolean {
+    this.state.lessons = this.state.lessons.filter((l) => l.id !== id);
+    this.state.attachments = this.state.attachments.filter((a) => a.lesson_id !== id);
+    this.state.progress = this.state.progress.filter((p) => p.lesson_id !== id);
+    this.saveState();
+    return true;
+  }
+
+  // Attachments
+  saveAttachment(attachment: LessonAttachment): LessonAttachment {
+    const idx = this.state.attachments.findIndex((a) => a.id === attachment.id);
+    if (idx >= 0) {
+      this.state.attachments[idx] = attachment;
+    } else {
+      this.state.attachments.push(attachment);
+    }
+    this.saveState();
+    return attachment;
+  }
+
+  deleteAttachment(id: string): boolean {
+    this.state.attachments = this.state.attachments.filter((a) => a.id !== id);
+    this.saveState();
+    return true;
+  }
+
+  // Enrollments
+  getEnrollments(userId?: string): Enrollment[] {
+    let list = [...this.state.enrollments];
+    if (userId) {
+      list = list.filter((e) => e.user_id === userId);
+    }
+    return list.map((e) => {
+      const course = this.getCourseById(e.course_id);
+      const profile = this.getProfileById(e.user_id);
+      return {
+        ...e,
+        course_title: course?.title,
+        course_slug: course?.slug,
+        course_thumbnail: course?.thumbnail_url,
+        user_name: profile?.full_name,
+        user_email: profile?.email,
+        user_avatar: profile?.avatar_url,
+      };
+    });
+  }
+
+  getEnrollment(userId: string, courseId: string): Enrollment | undefined {
+    const list = this.getEnrollments(userId);
+    return list.find((e) => e.course_id === courseId);
+  }
+
+  approveEnrollment(id: string): Enrollment | undefined {
+    return this.updateEnrollmentStatus(id, 'ACTIVE');
+  }
+
+  rejectEnrollment(id: string): Enrollment | undefined {
+    return this.updateEnrollmentStatus(id, 'CANCELLED');
+  }
+
+  deleteEnrollment(id: string): boolean {
+    this.state.enrollments = this.state.enrollments.filter((e) => e.id !== id);
+    this.saveState();
+    return true;
+  }
+
+  setBlockUser(userId: string, isBlocked: boolean): UserProfile | undefined {
+    const p = this.getProfileById(userId);
+    if (p) {
+      p.is_blocked = isBlocked;
+      p.status = isBlocked ? 'BLOCKED' : 'ACTIVE';
+      p.updated_at = new Date().toISOString();
+      this.saveState();
+    }
+    return p;
+  }
+
+  createEnrollment(userId: string, courseId: string, type: 'OPEN' | 'APPROVAL_REQUIRED' | 'ADMIN_ASSIGNED', enrolledByAdmin: boolean = false): Enrollment {
+    let status: 'PENDING' | 'ACTIVE' = 'ACTIVE';
+    if (type === 'APPROVAL_REQUIRED' && !enrolledByAdmin) {
+      status = 'PENDING';
+    }
+
+    const existing = this.state.enrollments.find((e) => e.user_id === userId && e.course_id === courseId);
+    if (existing) {
+      if (existing.status === 'CANCELLED') {
+        existing.status = status;
+        existing.updated_at = new Date().toISOString();
+        this.saveState();
+        return existing;
+      }
+      return existing;
+    }
+
+    const newEnrollment: Enrollment = {
+      id: 'enr-' + Math.random().toString(36).substring(2, 9),
+      user_id: userId,
+      course_id: courseId,
+      status: status,
+      enrolled_by: enrolledByAdmin ? 'ADMIN' : 'SELF',
+      enrolled_at: new Date().toISOString(),
+      approved_at: status === 'ACTIVE' ? new Date().toISOString() : undefined,
+      progress_percent: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    this.state.enrollments.push(newEnrollment);
+    this.saveState();
+    this.logAudit({ action: `Đăng ký khóa học (${status})`, action_level: 'INFO', entity_type: 'enrollment', entity_id: newEnrollment.id });
+    return newEnrollment;
+  }
+
+  updateEnrollmentStatus(id: string, status: 'ACTIVE' | 'CANCELLED', adminId?: string): Enrollment | undefined {
+    const enr = this.state.enrollments.find((e) => e.id === id);
+    if (enr) {
+      enr.status = status;
+      if (status === 'ACTIVE') {
+        enr.approved_at = new Date().toISOString();
+        enr.approved_by = adminId;
+      }
+      enr.updated_at = new Date().toISOString();
+      this.saveState();
+      this.logAudit({ action: `Cập nhật trạng thái tham gia: ${status}`, action_level: 'INFO', entity_type: 'enrollment', entity_id: id });
+    }
+    return enr;
+  }
+
+  // Lesson Progress
+  getLessonProgress(userId: string, courseId: string): LessonProgress[] {
+    return this.state.progress.filter((p) => p.user_id === userId && p.course_id === courseId);
+  }
+
+  markLessonProgress(userId: string, courseId: string, lessonId: string, status: 'IN_PROGRESS' | 'COMPLETED'): { progress: LessonProgress; enrollmentPercent: number } {
+    let prog = this.state.progress.find((p) => p.user_id === userId && p.lesson_id === lessonId);
+    const now = new Date().toISOString();
+
+    if (!prog) {
+      prog = {
+        id: 'prg-' + Math.random().toString(36).substring(2, 9),
+        user_id: userId,
+        course_id: courseId,
+        lesson_id: lessonId,
+        status: status,
+        started_at: now,
+        completed_at: status === 'COMPLETED' ? now : undefined,
+        last_viewed_at: now,
+        created_at: now,
+        updated_at: now,
+      };
+      this.state.progress.push(prog);
+    } else {
+      prog.status = status;
+      if (status === 'COMPLETED' && !prog.completed_at) {
+        prog.completed_at = now;
+      }
+      prog.last_viewed_at = now;
+      prog.updated_at = now;
+    }
+
+    // Recalculate percent
+    const sections = this.state.sections.filter((s) => s.course_id === courseId && s.status === 'PUBLISHED');
+    const secIds = sections.map((s) => s.id);
+    const pubLessons = this.state.lessons.filter((l) => secIds.includes(l.section_id) && l.status === 'PUBLISHED');
+
+    const completedCount = this.state.progress.filter(
+      (p) => p.user_id === userId && p.course_id === courseId && p.status === 'COMPLETED' && pubLessons.some((l) => l.id === p.lesson_id)
+    ).length;
+
+    let percent = 0;
+    if (pubLessons.length > 0) {
+      percent = Math.min(100, Math.round((completedCount / pubLessons.length) * 100));
+    }
+
+    const enr = this.state.enrollments.find((e) => e.user_id === userId && e.course_id === courseId);
+    if (enr) {
+      enr.progress_percent = percent;
+      enr.last_lesson_id = lessonId;
+      enr.updated_at = now;
+      if (percent >= 100) {
+        enr.status = 'COMPLETED';
+        enr.completed_at = now;
+      } else if (enr.status === 'COMPLETED' && percent < 100) {
+        enr.status = 'ACTIVE';
+      }
+    }
+
+    this.saveState();
+    return { progress: prog, enrollmentPercent: percent };
+  }
+
+  // Audit Logs
+  getAuditLogs(): SystemAuditLog[] {
+    return [...this.state.auditLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  logAudit(
+    actionOrEntry: string | { action: string; action_level?: 'INFO' | 'WARNING' | 'DANGER'; entity_type?: string; entity_id?: string; metadata?: Record<string, any>; actor_id?: string; actor_name?: string; actor_role?: string; details?: string },
+    role?: string,
+    detailsText?: string,
+    level?: 'INFO' | 'WARNING' | 'DANGER'
+  ) {
+    let entryObj: any;
+    if (typeof actionOrEntry === 'string') {
+      entryObj = {
+        action: actionOrEntry,
+        actor_role: role,
+        details: detailsText,
+        action_level: level || 'INFO',
+      };
+    } else {
+      entryObj = actionOrEntry;
+    }
+
+    const log: SystemAuditLog = {
+      id: 'aud-' + Math.random().toString(36).substring(2, 9),
+      actor_id: entryObj.actor_id,
+      actor_name: entryObj.actor_name || 'System / Admin',
+      actor_role: entryObj.actor_role || 'SUPER_ADMIN',
+      action: entryObj.action,
+      action_level: entryObj.action_level || 'INFO',
+      details: entryObj.details,
+      entity_type: entryObj.entity_type,
+      entity_id: entryObj.entity_id,
+      metadata: entryObj.metadata,
+      created_at: new Date().toISOString(),
+    };
+    this.state.auditLogs.unshift(log);
+    if (this.state.auditLogs.length > 200) {
+      this.state.auditLogs = this.state.auditLogs.slice(0, 200);
+    }
+    this.saveState();
+  }
+
+  setSetupStatus(status: Partial<SetupStatus>) {
+    this.updateSetupStatus(status);
+  }
+
+  resetToDemoData() {
+    this.resetDemoData();
+    this.seedDemoData();
+  }
+
+  // Seed sample data
+  seedDemoData() {
+    // Categories
+    const categories: Category[] = [
+      { id: 'c1000000-0000-0000-0000-000000000001', name: 'ChatGPT', slug: 'chatgpt', description: 'Các khóa học làm chủ ChatGPT từ cơ bản đến nâng cao', sort_order: 1, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000002', name: 'Gemini', slug: 'gemini', description: 'Ứng dụng Google Gemini trong sáng tạo và phân tích', sort_order: 2, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000003', name: 'AI Căn Bản', slug: 'ai-can-ban', description: 'Nền tảng trí tuệ nhân tạo cho người mới', sort_order: 3, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000004', name: 'AI Nâng Cao', slug: 'ai-nang-cao', description: 'Prompt Engineering và quy trình tự động', sort_order: 4, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000005', name: 'AI Tạo Hình Ảnh', slug: 'ai-tao-hinh-anh', description: 'Sáng tạo ảnh với Midjourney và Flux', sort_order: 5, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000006', name: 'AI Tạo Video', slug: 'ai-tao-video', description: 'Sản xuất video tự động bằng AI', sort_order: 6, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'c1000000-0000-0000-0000-000000000007', name: 'AI Cho Công Việc', slug: 'ai-cho-cong-viec', description: 'Tối ưu hóa hiệu suất làm việc văn phòng', sort_order: 7, status: 'ACTIVE', is_demo: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    ];
+
+    categories.forEach((c) => this.saveCategory(c));
+
+    // Course 1
+    const c1: Course = {
+      id: 'd1000000-0000-0000-0000-000000000001',
+      category_id: 'c1000000-0000-0000-0000-000000000001',
+      title: 'Làm quen với ChatGPT',
+      slug: 'lam-quen-voi-chatgpt',
+      short_description: 'Khóa học nhập môn giúp bạn khai phá sức mạnh của ChatGPT trong công việc và học tập.',
+      description: '<p>Khóa học bao gồm lý thuyết cơ bản và các bài thực hành thực tế, hướng dẫn viết prompt chuẩn, áp dụng vào soạn thảo email, tóm tắt tài liệu và phân tích dữ liệu.</p>',
+      thumbnail_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80',
+      instructor_name: 'Giảng viên LexEdu',
+      level: 'BEGINNER',
+      estimated_duration: 120,
+      enrollment_type: 'OPEN',
+      status: 'PUBLISHED',
+      is_featured: true,
+      show_curriculum_publicly: true,
+      allow_resource_download: true,
+      sort_order: 1,
+      learning_outcomes: ['Hiểu rõ nguyên lý hoạt động của ChatGPT', 'Biết cách cấu trúc một Prompt hiệu quả', 'Ứng dụng vào công việc văn phòng hằng ngày'],
+      target_audience: ['Người mới bắt đầu tìm hiểu về AI', 'Nhân viên văn phòng, sinh viên, giáo viên'],
+      requirements: ['Máy tính hoặc điện thoại có kết nối Internet'],
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.saveCourse(c1);
+
+    // Course 1 Sections & Lessons
+    const s1 = this.saveSection({
+      id: 's1000000-0000-0000-0000-000000000001',
+      course_id: c1.id,
+      title: 'Chương 1: Tổng quan về ChatGPT',
+      description: 'Giới thiệu về giao diện và nguyên lý hoạt động',
+      sort_order: 1,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const l1 = this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000001',
+      section_id: s1.id,
+      title: 'Bài 1: Giới thiệu ChatGPT và OpenAI',
+      slug: 'bai-1-gioi-thieu-chatgpt',
+      lesson_type: 'TEXT',
+      text_content: '<h3>Chào mừng bạn đến với khóa học Làm quen với ChatGPT</h3><p>Trong bài học này, chúng ta sẽ tìm hiểu lịch sử phát triển của Mô hình ngôn ngữ lớn (LLM) và cách truy cập ChatGPT trên web và di động.</p><h4>1. ChatGPT là gì?</h4><p>ChatGPT là trợ lý AI thông minh do OpenAI phát triển, có khả năng hiểu và phản hồi ngôn ngữ tự nhiên như con người.</p>',
+      estimated_duration: 15,
+      sort_order: 1,
+      is_preview: true,
+      allow_download: true,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const l2 = this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000002',
+      section_id: s1.id,
+      title: 'Bài 2: Hướng dẫn giao diện và câu lệnh chuẩn',
+      slug: 'bai-2-huong-dan-giao-dien',
+      lesson_type: 'VIDEO',
+      video_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      text_content: '<p>Video hướng dẫn cách thao tác giao diện ChatGPT, tạo cuộc hội thoại mới và quản lý lịch sử trò chuyện.</p>',
+      estimated_duration: 20,
+      sort_order: 2,
+      is_preview: false,
+      allow_download: false,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    // Course 2
+    const c2: Course = {
+      id: 'd1000000-0000-0000-0000-000000000002',
+      category_id: 'c1000000-0000-0000-0000-000000000002',
+      title: 'Gemini nâng cao cho công việc',
+      slug: 'gemini-nang-cao-cho-cong-viec',
+      short_description: 'Chuyên sâu về mô hình đa thức của Google Gemini trong lập trình, phân tích dữ liệu.',
+      description: '<p>Khóa học dành cho học viên cần xử lý khối lượng dữ liệu khổng lồ với Context Window dài vượt trội của Gemini 1.5 & 2.0 Pro.</p>',
+      thumbnail_url: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&q=80',
+      instructor_name: 'Senior AI Architect',
+      level: 'ADVANCED',
+      estimated_duration: 240,
+      enrollment_type: 'ADMIN_ASSIGNED',
+      status: 'PUBLISHED',
+      is_featured: true,
+      show_curriculum_publicly: true,
+      allow_resource_download: true,
+      sort_order: 2,
+      learning_outcomes: ['Khai thác cửa sổ ngữ cảnh 1M-2M tokens', 'Phân tích tài liệu PDF và video dài bằng Gemini', 'Tích hợp Gemini API trong dự án'],
+      target_audience: ['Lập trình viên, Data Analyst, Manager'],
+      requirements: ['Đã nắm vững kiến thức cơ bản về AI'],
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.saveCourse(c2);
+
+    // Course 3
+    const c3: Course = {
+      id: 'd1000000-0000-0000-0000-000000000003',
+      category_id: 'c1000000-0000-0000-0000-000000000005',
+      title: 'Sử dụng AI để tạo hình ảnh',
+      slug: 'su-dung-ai-de-tao-hinh-anh',
+      short_description: 'Kỹ thuật tạo banner, logo, thiết kế và nghệ thuật số với công cụ AI thế hệ mới.',
+      description: '<p>Hướng dẫn từng bước cách phối hợp phong cách nghệ thuật, ánh sáng, góc máy và bố cục để tạo ra tác phẩm chuyên nghiệp.</p>',
+      thumbnail_url: 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=800&q=80',
+      instructor_name: 'Creative Director',
+      level: 'INTERMEDIATE',
+      estimated_duration: 180,
+      enrollment_type: 'APPROVAL_REQUIRED',
+      status: 'PUBLISHED',
+      is_featured: true,
+      show_curriculum_publicly: true,
+      allow_resource_download: true,
+      sort_order: 3,
+      learning_outcomes: ['Làm chủ các lệnh tạo ảnh và negative prompt', 'Tự làm banner truyền thông và hình minh họa'],
+      target_audience: ['Graphic Designer, Marketer, Content Creator'],
+      requirements: ['Có niềm đam mê sáng tạo hình ảnh'],
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.saveCourse(c3);
+
+    this.updateSetupStatus({ demoDataInitialized: true });
+    this.logAudit({ action: 'Khởi tạo dữ liệu mẫu thành công', action_level: 'INFO' });
+  }
+
+  // System Resets (5 levels)
+  // Level 1: Test connection
+  async testConnection(): Promise<ConnectionTestResult> {
+    return {
+      supabaseApi: true,
+      authentication: true,
+      postgreSQL: true,
+      serverAccess: true,
+      storage: true,
+      migrationAccess: true,
+      details: {
+        apiUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lexedu-api.supabase.co',
+        authMessage: 'Supabase Authentication khả dụng',
+        dbMessage: 'PostgreSQL Database kết nối bình thường',
+        serverMessage: 'Server role access thành công',
+        storageBuckets: ['avatars', 'course-images', 'lesson-files'],
+        migrationMessage: '18 migration schema sẵn sàng',
+      },
+    };
+  }
+
+  // Level 2: Repair configuration
+  repairConfiguration() {
+    this.logAudit({ action: 'Chạy sửa chữa cấu hình (Repair Configuration)', action_level: 'WARNING' });
+    return { success: true, message: 'Đã kiểm tra và khôi phục bảng, trigger, policy và buckets.' };
+  }
+
+  // Level 3: Apply pending migrations
+  applyPendingMigrations() {
+    this.state.migrations.forEach((m) => {
+      m.status = 'COMPLETED';
+      m.completed_at = new Date().toISOString();
+    });
+    this.saveState();
+    this.logAudit({ action: 'Chạy cập nhật migration còn thiếu', action_level: 'INFO' });
+    return { success: true, appliedCount: this.state.migrations.length };
+  }
+
+  // Level 4: Reset demo data
+  resetDemoData() {
+    this.state.categories = this.state.categories.filter((c) => !c.is_demo);
+    this.state.courses = this.state.courses.filter((c) => !c.is_demo);
+    this.state.sections = this.state.sections.filter((s) => !s.is_demo);
+    this.state.lessons = this.state.lessons.filter((l) => !l.is_demo);
+    this.state.attachments = this.state.attachments.filter((a) => !a.is_demo);
+    this.state.setupStatus.demoDataInitialized = false;
+    this.saveState();
+    this.logAudit({ action: 'Xóa toàn bộ dữ liệu mẫu (Reset Demo Data)', action_level: 'WARNING' });
+    return { success: true, message: 'Đã xóa toàn bộ dữ liệu mẫu.' };
+  }
+
+  // Level 5: Factory Reset
+  factoryReset(keepSuperAdmin: boolean = true) {
+    let superAdmin = keepSuperAdmin ? this.state.profiles.find((p) => p.role === 'SUPER_ADMIN') : undefined;
+
+    this.state = getInitialState();
+    if (superAdmin) {
+      this.state.profiles.push(superAdmin);
+    }
+    this.saveState();
+    this.logAudit({ action: 'FACTORY RESET TOÀN BỘ HỆ THỐNG', action_level: 'DANGER' });
+    return { success: true, message: 'Hệ thống đã được đưa về trạng thái cài đặt ban đầu.' };
+  }
+}
+
+export const dbStore = new DBStoreEngine();

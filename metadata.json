@@ -1,0 +1,6 @@
+{
+  "name": "LexEdu E-Learning Platform",
+  "description": "Nền tảng e-learning LEXEDU hoàn chỉnh - Quản lý khóa học, bài giảng, học viên và hệ thống cài đặt One-Time Setup Wizard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
