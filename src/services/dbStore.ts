@@ -284,6 +284,15 @@ class DBStoreEngine {
     return true;
   }
 
+  getSectionById(id: string): CourseSection | undefined {
+    return this.state.sections.find((s) => s.id === id);
+  }
+
+  getCourseIdBySectionId(sectionId: string): string | undefined {
+    const sec = this.state.sections.find((s) => s.id === sectionId);
+    return sec?.course_id;
+  }
+
   // Lessons
   getLessonById(lessonId: string): Lesson | undefined {
     const les = this.state.lessons.find((l) => l.id === lessonId);

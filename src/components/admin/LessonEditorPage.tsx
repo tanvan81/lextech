@@ -27,11 +27,22 @@ export const LessonEditorPage: React.FC<LessonEditorPageProps> = ({ lessonId, on
   const [newFileName, setNewFileName] = useState('');
   const [newFileUrl, setNewFileUrl] = useState('');
 
+  const handleBack = () => {
+    if (lesson) {
+      const courseId = dbStore.getCourseIdBySectionId(lesson.section_id);
+      if (courseId) {
+        onNavigate(`/admin/courses/${courseId}/curriculum`);
+        return;
+      }
+    }
+    onNavigate('/admin/courses');
+  };
+
   if (!lesson) {
     return (
       <div className="p-8 text-center space-y-4">
         <h2 className="text-lg font-bold text-slate-800">Bài học không tồn tại</h2>
-        <Button variant="primary" onClick={() => onNavigate('/admin/courses')}>Quay lại</Button>
+        <Button variant="primary" onClick={handleBack}>Quay lại</Button>
       </div>
     );
   }
@@ -75,16 +86,14 @@ export const LessonEditorPage: React.FC<LessonEditorPageProps> = ({ lessonId, on
     };
 
     dbStore.saveLesson(updatedLesson);
-    // Find section to get course id
-    const sections = dbStore.getSectionsByCourse(lesson.section_id);
-    onNavigate('/admin/courses');
+    handleBack();
   };
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => onNavigate('/admin/courses')} icon={<ArrowLeft className="w-4 h-4" />}>
+          <Button variant="ghost" size="sm" onClick={handleBack} icon={<ArrowLeft className="w-4 h-4" />}>
             Trở về
           </Button>
           <h1 className="text-2xl font-bold text-slate-900">Soạn Thảo Nội Dung Bài Học</h1>
@@ -200,7 +209,7 @@ export const LessonEditorPage: React.FC<LessonEditorPageProps> = ({ lessonId, on
         </Card>
 
         <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => onNavigate('/admin/courses')}>Hủy</Button>
+          <Button type="button" variant="outline" onClick={handleBack}>Hủy</Button>
           <Button type="submit" variant="primary" icon={<Save className="w-4 h-4" />}>Lưu bài học</Button>
         </div>
       </form>

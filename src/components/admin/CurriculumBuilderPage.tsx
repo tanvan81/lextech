@@ -14,6 +14,7 @@ interface CurriculumBuilderPageProps {
 }
 
 export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ courseId, onNavigate }) => {
+  const [refreshKey, setRefreshKey] = useState(0);
   const course = dbStore.getCourseById(courseId);
   const sections = dbStore.getSectionsByCourse(courseId);
 
@@ -69,10 +70,12 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
 
     dbStore.saveSection(secData);
     setSectionModalOpen(false);
+    setRefreshKey((k) => k + 1);
   };
 
   const handleDeleteSection = (secId: string) => {
     dbStore.deleteSection(secId);
+    setRefreshKey((k) => k + 1);
   };
 
   // Lesson Handlers
@@ -83,7 +86,7 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
     setLessonModalOpen(true);
   };
 
-  const handleCreateLesson = (e: React.FormEvent) => {
+  const handleCreateLesson = (e: React.FormEvent, openEditor: boolean = false) => {
     e.preventDefault();
     if (!lessonTitle.trim() || !selectedSectionId) return;
 
@@ -106,11 +109,15 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
 
     dbStore.saveLesson(newLesson);
     setLessonModalOpen(false);
-    onNavigate(`/admin/lessons/${newLesson.id}/edit`);
+    setRefreshKey((k) => k + 1);
+    if (openEditor) {
+      onNavigate(`/admin/lessons/${newLesson.id}/edit`);
+    }
   };
 
   const handleDeleteLesson = (lesId: string) => {
     dbStore.deleteLesson(lesId);
+    setRefreshKey((k) => k + 1);
   };
 
   return (
@@ -232,8 +239,9 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
             </select>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={() => setLessonModalOpen(false)}>Hủy</Button>
-            <Button variant="primary" size="sm" type="submit">Tạo & Sửa nội dung</Button>
+            <Button variant="outline" size="sm" type="button" onClick={() => setLessonModalOpen(false)}>Hủy</Button>
+            <Button variant="outline" size="sm" type="button" onClick={(e) => handleCreateLesson(e, false)}>Lưu bài học</Button>
+            <Button variant="primary" size="sm" type="button" onClick={(e) => handleCreateLesson(e, true)}>Lưu & Soạn nội dung</Button>
           </div>
         </form>
       </Modal>
