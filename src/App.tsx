@@ -89,11 +89,27 @@ export function App() {
   const isAdminRoute = currentRoute.startsWith('/admin');
 
   // Check if route is Lesson Player (Standalone Fullscreen Layout)
-  const isLessonPlayerRoute = currentRoute.startsWith('/student/learn/');
+  const isLessonPlayerRoute =
+    currentRoute.startsWith('/student/learn/') || currentRoute.startsWith('/student/courses/');
 
-  if (isLessonPlayerRoute && currentUser) {
+  if (isLessonPlayerRoute) {
+    if (!currentUser) {
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-50 font-sans antialiased text-slate-900">
+          <Header currentUser={currentUser} onNavigate={navigate} onLogout={handleLogout} />
+          <main className="flex-1 flex items-center justify-center p-4">
+            <LoginPage onNavigate={navigate} onLoginSuccess={handleLoginSuccess} />
+          </main>
+          <Footer onNavigate={navigate} />
+        </div>
+      );
+    }
+
     // Extract courseId and lessonId
-    const parts = currentRoute.replace('/student/learn/', '').split('/');
+    const cleanPath = currentRoute
+      .replace('/student/learn/', '')
+      .replace('/student/courses/', '');
+    const parts = cleanPath.split('/');
     const courseId = parts[0];
     const lessonId = parts[1];
 
