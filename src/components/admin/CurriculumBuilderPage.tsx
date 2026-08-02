@@ -78,6 +78,33 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
     setRefreshKey((k) => k + 1);
   };
 
+  const handleMoveSection = (index: number, direction: 'UP' | 'DOWN') => {
+    const targetIndex = direction === 'UP' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sections.length) return;
+
+    const newSections = [...sections];
+    const temp = newSections[index];
+    newSections[index] = newSections[targetIndex];
+    newSections[targetIndex] = temp;
+
+    dbStore.reorderSections(courseId, newSections.map((s) => s.id));
+    setRefreshKey((k) => k + 1);
+  };
+
+  const handleMoveLesson = (section: CourseSection, lessonIndex: number, direction: 'UP' | 'DOWN') => {
+    const lessons = section.lessons || [];
+    const targetIndex = direction === 'UP' ? lessonIndex - 1 : lessonIndex + 1;
+    if (targetIndex < 0 || targetIndex >= lessons.length) return;
+
+    const newLessons = [...lessons];
+    const temp = newLessons[lessonIndex];
+    newLessons[lessonIndex] = newLessons[targetIndex];
+    newLessons[targetIndex] = temp;
+
+    dbStore.reorderLessons(section.id, newLessons.map((l) => l.id));
+    setRefreshKey((k) => k + 1);
+  };
+
   // Lesson Handlers
   const handleOpenLessonModal = (secId: string) => {
     setSelectedSectionId(secId);
@@ -90,6 +117,9 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
     e.preventDefault();
     if (!lessonTitle.trim() || !selectedSectionId) return;
 
+    const currentSection = sections.find((s) => s.id === selectedSectionId);
+    const existingCount = currentSection?.lessons?.length || 0;
+
     const slug = lessonTitle.toLowerCase().trim().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-');
     const newLesson: Lesson = {
       id: 'les-' + Math.random().toString(36).substring(2, 9),
@@ -99,7 +129,7 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
       lesson_type: lessonType,
       text_content: '<p>Nội dung bài học chưa cập nhật.</p>',
       estimated_duration: 15,
-      sort_order: 1,
+      sort_order: existingCount + 1,
       is_preview: false,
       allow_download: true,
       status: 'PUBLISHED',
@@ -148,12 +178,34 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
             </CardContent>
           </Card>
         ) : (
-          sections.map((sec) => (
+          sections.map((sec, secIdx) => (
             <Card key={sec.id} className="overflow-hidden border-slate-200">
               <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="font-bold text-sm text-slate-900">{sec.title}</div>
-                  {sec.description && <p className="text-xs text-slate-500">{sec.description}</p>}
+                <div className="flex items-center gap-2 space-y-0.5">
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      disabled={secIdx === 0}
+                      onClick={() => handleMoveSection(secIdx, 'UP')}
+                      className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-colors"
+                      title="Chuyển chương lên"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={secIdx === sections.length - 1}
+                      onClick={() => handleMoveSection(secIdx, 'DOWN')}
+                      className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 transition-colors"
+                      title="Chuyển chương xuống"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-slate-900">{sec.title}</div>
+                    {sec.description && <p className="text-xs text-slate-500">{sec.description}</p>}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -170,9 +222,30 @@ export const CurriculumBuilderPage: React.FC<CurriculumBuilderPageProps> = ({ co
                 {sec.lessons?.length === 0 ? (
                   <div className="p-4 text-center text-xs text-slate-400">Chưa có bài học trong chương này.</div>
                 ) : (
-                  sec.lessons?.map((les) => (
+                  sec.lessons?.map((les, lIndex) => (
                     <div key={les.id} className="p-3 flex items-center justify-between hover:bg-slate-50 rounded-lg transition-colors">
                       <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-0.5 border-r border-slate-200 pr-2">
+                          <button
+                            type="button"
+                            disabled={lIndex === 0}
+                            onClick={() => handleMoveLesson(sec, lIndex, 'UP')}
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded disabled:opacity-20 disabled:hover:bg-transparent transition-colors"
+                            title="Di chuyển bài học lên"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={lIndex === (sec.lessons?.length || 0) - 1}
+                            onClick={() => handleMoveLesson(sec, lIndex, 'DOWN')}
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded disabled:opacity-20 disabled:hover:bg-transparent transition-colors"
+                            title="Di chuyển bài học xuống"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
                         {les.lesson_type === 'VIDEO' ? (
                           <PlayCircle className="w-4 h-4 text-indigo-600 shrink-0" />
                         ) : (

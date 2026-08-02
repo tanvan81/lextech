@@ -245,6 +245,30 @@ class DBStoreEngine {
     return true;
   }
 
+  // Reorder Sections
+  reorderSections(courseId: string, orderedSectionIds: string[]): void {
+    orderedSectionIds.forEach((id, index) => {
+      const sec = this.state.sections.find((s) => s.id === id);
+      if (sec) {
+        sec.sort_order = index + 1;
+        sec.updated_at = new Date().toISOString();
+      }
+    });
+    this.saveState();
+  }
+
+  // Reorder Lessons
+  reorderLessons(sectionId: string, orderedLessonIds: string[]): void {
+    orderedLessonIds.forEach((id, index) => {
+      const les = this.state.lessons.find((l) => l.id === id);
+      if (les) {
+        les.sort_order = index + 1;
+        les.updated_at = new Date().toISOString();
+      }
+    });
+    this.saveState();
+  }
+
   // Sections
   getSectionsByCourse(courseId: string): CourseSection[] {
     const secs = this.state.sections
