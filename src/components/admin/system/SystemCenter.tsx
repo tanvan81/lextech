@@ -32,6 +32,7 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
   const [activeTab, setActiveTab] = useState(tab);
   const [resetLevel, setResetLevel] = useState<number | null>(null);
   const [resetSuccessMsg, setResetSuccessMsg] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
 
   const auditLogs = dbStore.getAuditLogs();
 
@@ -105,41 +106,48 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
       setSpTesting(false);
     }
   };
-  const handleExecuteReset = () => {
+  const handleExecuteReset = async () => {
     if (resetLevel === null) return;
+    setIsResetting(true);
+    setResetSuccessMsg(null);
 
-    if (resetLevel === 1) {
-      // Soft Reset
-      localStorage.removeItem('lexedu_auth_token');
-      dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_SOFT_RESET', 'Xóa cache phiên đăng nhập browser', 'INFO');
-      setResetSuccessMsg('Đã dọn dẹp cache phiên đăng nhập.');
-    } else if (resetLevel === 2) {
-      // Seed Refresh
-      dbStore.resetToDemoData();
-      dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_SEED_REFRESH', 'Khôi phục dữ liệu mẫu Demo', 'WARNING');
-      setResetSuccessMsg('Đã làm mới dữ liệu hệ thống mẫu (Seed Data Refresh).');
-    } else if (resetLevel === 3) {
-      // Migration Force Re-Apply
-      dbStore.resetToDemoData();
-      dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_MIGRATION_REAPPLY', 'Thực thi lại 18 file Migration SQL', 'WARNING');
-      setResetSuccessMsg('Đã hoàn tất Re-Apply 18 file SQL Migration thành công.');
-    } else if (resetLevel === 4) {
-      // Factory Reset
-      dbStore.resetToDemoData();
-      dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_FACTORY_RESET', 'Khôi phục cài đặt gốc toàn bộ cơ sở dữ liệu', 'DANGER');
-      setResetSuccessMsg('Đã khôi phục cài đặt gốc Factory Reset!');
-    } else if (resetLevel === 5) {
-      // Re-trigger Setup Wizard
-      dbStore.setSetupStatus({
-        installed: false,
-        installedAt: null,
-        demoDataInitialized: false,
-      });
-      window.location.href = '/setup';
-      return;
+    try {
+      if (resetLevel === 1) {
+        // Soft Reset
+        localStorage.removeItem('lexedu_auth_token');
+        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_SOFT_RESET', 'Xóa cache phiên đăng nhập browser', 'INFO');
+        setResetSuccessMsg('🟢 Đã dọn dẹp cache phiên đăng nhập.');
+      } else if (resetLevel === 2) {
+        // Seed Refresh
+        await dbStore.resetToDemoData();
+        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_SEED_REFRESH', 'Khôi phục dữ liệu mẫu Demo & đồng bộ Supabase', 'WARNING');
+        setResetSuccessMsg('🟢 Đã làm mới dữ liệu mẫu Demo và đồng bộ trực tiếp lên cơ sở dữ liệu Supabase thành công!');
+      } else if (resetLevel === 3) {
+        // Migration Force Re-Apply
+        await dbStore.resetToDemoData();
+        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_MIGRATION_REAPPLY', 'Thực thi lại 18 file Migration SQL & khôi phục bảng', 'WARNING');
+        setResetSuccessMsg('🟢 Đã Re-apply 18 Migration SQL & khôi phục toàn bộ cấu trúc dữ liệu trên Supabase thành công!');
+      } else if (resetLevel === 4) {
+        // Factory Reset
+        await dbStore.resetToDemoData();
+        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_FACTORY_RESET', 'Khôi phục cài đặt gốc toàn bộ cơ sở dữ liệu', 'DANGER');
+        setResetSuccessMsg('🟢 Đã khôi phục cài đặt gốc Factory Reset thành công trên cả Trình duyệt & Supabase!');
+      } else if (resetLevel === 5) {
+        // Re-trigger Setup Wizard
+        dbStore.setSetupStatus({
+          installed: false,
+          installedAt: null,
+          demoDataInitialized: false,
+        });
+        window.location.href = '/setup';
+        return;
+      }
+    } catch (err: any) {
+      setResetSuccessMsg(`🔴 Lỗi khi thực hiện Reset: ${err.message || err}`);
+    } finally {
+      setIsResetting(false);
+      setResetLevel(null);
     }
-
-    setResetLevel(null);
   };
 
   return (
@@ -396,6 +404,17 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
       {/* TAB 6: RESET & REPAIR */}
       {activeTab === 'reset' && (
         <div className="space-y-6">
+          {resetSuccessMsg && (
+            <div className={`p-4 rounded-xl text-xs font-semibold border flex items-center justify-between ${
+              resetSuccessMsg.startsWith('🔴')
+                ? 'bg-rose-50 text-rose-800 border-rose-200'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}>
+              <span>{resetSuccessMsg}</span>
+              <button onClick={() => setResetSuccessMsg(null)} className="text-slate-400 hover:text-slate-600 font-bold px-2">✕</button>
+            </div>
+          )}
+
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-1">
             <div className="font-bold flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -463,9 +482,10 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
         isOpen={resetLevel !== null}
         onClose={() => setResetLevel(null)}
         onConfirm={handleExecuteReset}
+        isLoading={isResetting}
         title={`Xác Nhận Thực Hiện Reset Hệ Thống Cấp Độ ${resetLevel}`}
-        message="Hành động này sẽ thay đổi hoặc làm mới dữ liệu hệ thống. Bạn có chắc chắn muốn tiếp tục?"
-        confirmText="Xác nhận thực hiện"
+        message="Hành động này sẽ làm mới hoặc xóa dữ liệu để đưa hệ thống về trạng thái chuẩn (đồng bộ trực tiếp lên Supabase). Bạn có chắc chắn muốn tiếp tục?"
+        confirmText={isResetting ? "Đang xử lý..." : "Xác nhận thực hiện"}
       />
     </div>
   );

@@ -1,0 +1,18 @@
+Pass: yZPB9cx.2jT.rzm
+
+Project Url
+https://sznckesqscseaytgdekd.supabase.co
+
+Publishable key
+sb_publishable_hsXlT6R86aJQlxbPTaMjkg_XpcdYNlY
+
+Secret key
+sb_secret_kupAtghbv_Px_Aqcsa_9BA_OplJ0gsP
+
+
+postgresql://postgres:yZPB9cx.2jT.rzm@db.sznckesqscseaytgdekd.supabase.co:5432/postgres
+
+host=db.sznckesqscseaytgdekd.supabase.co
+port=5432
+database=postgres
+user=postgres

@@ -383,18 +383,36 @@ class DBStoreEngine {
 
   saveCategory(category: Category): Category {
     const idx = this.state.categories.findIndex((c) => c.id === category.id);
+    let updated: Category;
     if (idx >= 0) {
-      this.state.categories[idx] = { ...category, updated_at: new Date().toISOString() };
+      updated = { ...category, updated_at: new Date().toISOString() };
+      this.state.categories[idx] = updated;
     } else {
-      this.state.categories.push({ ...category, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      updated = { ...category, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      this.state.categories.push(updated);
     }
     this.saveState();
-    return category;
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      const { courses_count, ...cleanCat }: any = updated;
+      client.from('categories').upsert(cleanCat).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] saveCategory warning:', error.message);
+      });
+    }
+    return updated;
   }
 
   deleteCategory(id: string): boolean {
     this.state.categories = this.state.categories.filter((c) => c.id !== id);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('categories').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteCategory warning:', error.message);
+      });
+    }
     return true;
   }
 
@@ -487,26 +505,46 @@ class DBStoreEngine {
 
   // Reorder Sections
   reorderSections(courseId: string, orderedSectionIds: string[]): void {
+    const updatedSecs: any[] = [];
     orderedSectionIds.forEach((id, index) => {
       const sec = this.state.sections.find((s) => s.id === id);
       if (sec) {
         sec.sort_order = index + 1;
         sec.updated_at = new Date().toISOString();
+        const { lessons, ...cleanSec }: any = sec;
+        updatedSecs.push(cleanSec);
       }
     });
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client && updatedSecs.length > 0) {
+      client.from('course_sections').upsert(updatedSecs).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] reorderSections warning:', error.message);
+      });
+    }
   }
 
   // Reorder Lessons
   reorderLessons(sectionId: string, orderedLessonIds: string[]): void {
+    const updatedLessons: any[] = [];
     orderedLessonIds.forEach((id, index) => {
       const les = this.state.lessons.find((l) => l.id === id);
       if (les) {
         les.sort_order = index + 1;
         les.updated_at = new Date().toISOString();
+        const { attachments, ...cleanLes }: any = les;
+        updatedLessons.push(cleanLes);
       }
     });
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client && updatedLessons.length > 0) {
+      client.from('lessons').upsert(updatedLessons).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] reorderLessons warning:', error.message);
+      });
+    }
   }
 
   // Sections
@@ -532,19 +570,47 @@ class DBStoreEngine {
 
   saveSection(section: CourseSection): CourseSection {
     const idx = this.state.sections.findIndex((s) => s.id === section.id);
+    let updated: CourseSection;
     if (idx >= 0) {
-      this.state.sections[idx] = { ...section, updated_at: new Date().toISOString() };
+      updated = { ...section, updated_at: new Date().toISOString() };
+      this.state.sections[idx] = updated;
     } else {
-      this.state.sections.push({ ...section, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      updated = { ...section, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      this.state.sections.push(updated);
     }
     this.saveState();
-    return section;
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      const { lessons, ...cleanSec }: any = updated;
+      client.from('course_sections').upsert(cleanSec).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] saveSection warning:', error.message);
+      });
+    }
+
+    return updated;
   }
 
   deleteSection(id: string): boolean {
+    const lessonsToDelete = this.state.lessons.filter((l) => l.section_id === id);
+    const lessonIds = lessonsToDelete.map((l) => l.id);
+
     this.state.sections = this.state.sections.filter((s) => s.id !== id);
     this.state.lessons = this.state.lessons.filter((l) => l.section_id !== id);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('course_sections').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteSection warning:', error.message);
+      });
+      if (lessonIds.length > 0) {
+        client.from('lessons').delete().in('id', lessonIds).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] deleteSection lessons warning:', error.message);
+        });
+      }
+    }
+
     return true;
   }
 
@@ -569,13 +635,25 @@ class DBStoreEngine {
 
   saveLesson(lesson: Lesson): Lesson {
     const idx = this.state.lessons.findIndex((l) => l.id === lesson.id);
+    let updated: Lesson;
     if (idx >= 0) {
-      this.state.lessons[idx] = { ...lesson, updated_at: new Date().toISOString() };
+      updated = { ...lesson, updated_at: new Date().toISOString() };
+      this.state.lessons[idx] = updated;
     } else {
-      this.state.lessons.push({ ...lesson, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      updated = { ...lesson, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      this.state.lessons.push(updated);
     }
     this.saveState();
-    return lesson;
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      const { attachments, ...cleanLes }: any = updated;
+      client.from('lessons').upsert(cleanLes).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] saveLesson warning:', error.message);
+      });
+    }
+
+    return updated;
   }
 
   deleteLesson(id: string): boolean {
@@ -583,6 +661,14 @@ class DBStoreEngine {
     this.state.attachments = this.state.attachments.filter((a) => a.lesson_id !== id);
     this.state.progress = this.state.progress.filter((p) => p.lesson_id !== id);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('lessons').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteLesson warning:', error.message);
+      });
+    }
+
     return true;
   }
 
@@ -885,9 +971,18 @@ class DBStoreEngine {
     this.updateSetupStatus(status);
   }
 
-  resetToDemoData() {
+  async resetToDemoData(): Promise<void> {
     this.resetDemoData();
     this.seedDemoData();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      try {
+        await this.uploadAllDataToSupabase();
+      } catch (err) {
+        console.warn('[DBStore] Error syncing demo data to Supabase on reset:', err);
+      }
+    }
   }
 
   // Seed sample data

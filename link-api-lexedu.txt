@@ -1,0 +1,13 @@
+
+https://api.lexedu.vn/api/v1/marketing/leads
+
+{
+name: "Linh Linh", 
+phone: "0902933234", 
+email: null, 
+courseId: "02f7e8e3-61c0-4843-95a0-a6cde979b4ef",
+goal: null,
+level: null,
+promoCode: null,
+source: "hero_consult"
+}
