@@ -13,10 +13,20 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate, onLoginSuccess, returnUrl }) => {
-  const [email, setEmail] = useState('admin@lexedu.vn');
-  const [password, setPassword] = useState('LexEdu2026@Master');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fillAdmin = () => {
+    setEmail('admin@lexedu.vn');
+    setPassword('LexEdu2026@Master');
+  };
+
+  const fillStudent = () => {
+    setEmail('hocvien@lexedu.vn');
+    setPassword('12345678');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +99,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate, onLoginSuccess
               <Button type="submit" variant="primary" className="w-full" size="lg" isLoading={isLoading} icon={<LogIn className="w-4 h-4" />}>
                 Đăng nhập
               </Button>
+
+              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                <div className="text-[11px] font-medium text-slate-400 text-center">Tài khoản mẫu:</div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={fillAdmin} className="flex-1 py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-semibold transition-colors">
+                    Admin mẫu
+                  </button>
+                  <button type="button" onClick={fillStudent} className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold transition-colors">
+                    Học viên mẫu
+                  </button>
+                </div>
+              </div>
             </CardContent>
           </form>
           <CardFooter className="text-center justify-center text-xs text-slate-500 border-t border-slate-100">

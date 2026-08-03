@@ -18,6 +18,7 @@ export interface UserProfile {
   id: string;
   full_name: string;
   email: string;
+  password?: string;
   avatar_url?: string;
   role: UserRole;
   status: UserStatus;

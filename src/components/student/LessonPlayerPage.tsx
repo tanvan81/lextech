@@ -11,13 +11,15 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Award
+  Award,
+  ExternalLink
 } from 'lucide-react';
 import { Course, CourseSection, Lesson, UserProfile } from '../../types';
 import { dbStore } from '../../services/dbStore';
 import { Button } from '../ui/Button';
 import { Progress } from '../ui/Progress';
 import { Badge } from '../ui/Badge';
+import { formatEmbedUrl, getExternalViewUrl } from '../../utils/urlHelper';
 
 interface LessonPlayerPageProps {
   courseId: string;
@@ -202,16 +204,34 @@ export const LessonPlayerPage: React.FC<LessonPlayerPageProps> = ({
 
           {/* Lesson Content Area */}
           <div className="bg-slate-950 rounded-2xl border border-slate-800 p-6 space-y-6 shadow-xl">
-            {/* VIDEO PLAYER */}
-            {currentLesson.lesson_type === 'VIDEO' && currentLesson.video_url && (
-              <div className="aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800">
-                <iframe
-                  src={currentLesson.video_url.replace('watch?v=', 'embed/')}
-                  title={currentLesson.title}
-                  className="w-full h-full border-0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+            {/* EMBED MEDIA (VIDEO / SLIDE / PDF / GOOGLE DRIVE DOCUMENT) */}
+            {(currentLesson.video_url || currentLesson.slide_url) && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-300 bg-slate-900 p-3 rounded-xl border border-slate-800 flex-wrap gap-2">
+                  <span className="font-semibold text-slate-200 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-400" />
+                    Nội dung bài học / Tài liệu đính kèm
+                  </span>
+                  <a
+                    href={getExternalViewUrl(currentLesson.video_url || currentLesson.slide_url || '')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-2xs"
+                  >
+                    <span>Mở trực tiếp tài liệu</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
+                <div className="aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 relative">
+                  <iframe
+                    src={formatEmbedUrl(currentLesson.video_url || currentLesson.slide_url || '')}
+                    title={currentLesson.title}
+                    className="w-full h-full border-0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
               </div>
             )}
 
@@ -221,13 +241,6 @@ export const LessonPlayerPage: React.FC<LessonPlayerPageProps> = ({
                 className="prose prose-invert prose-indigo max-w-none text-slate-300 text-sm leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: currentLesson.text_content }}
               />
-            )}
-
-            {/* SLIDE / EMBED */}
-            {currentLesson.lesson_type === 'SLIDE' && currentLesson.slide_url && (
-              <div className="aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800">
-                <iframe src={currentLesson.slide_url} title="Slide Viewer" className="w-full h-full border-0" />
-              </div>
             )}
 
             {/* ATTACHMENTS */}

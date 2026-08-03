@@ -59,14 +59,35 @@ const DEFAULT_MIGRATIONS: SystemMigration[] = [
 function getInitialState(): LocalDBState {
   return {
     setupStatus: {
-      installed: false,
+      installed: true,
       schemaVersion: '1.0.0',
       setupVersion: '1.0.0',
-      installedAt: null,
+      installedAt: new Date().toISOString(),
       deploymentMode: 'self-hosted',
-      demoDataInitialized: false,
+      demoDataInitialized: true,
     },
-    profiles: [],
+    profiles: [
+      {
+        id: 'usr-admin-001',
+        full_name: 'Quản trị viên LexEdu',
+        email: 'admin@lexedu.vn',
+        password: 'LexEdu2026@Master',
+        role: 'SUPER_ADMIN',
+        status: 'ACTIVE',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 'usr-student-001',
+        full_name: 'Học viên Mẫu',
+        email: 'hocvien@lexedu.vn',
+        password: '12345678',
+        role: 'STUDENT',
+        status: 'ACTIVE',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+    ],
     categories: [],
     courses: [],
     sections: [],
@@ -92,7 +113,17 @@ class DBStoreEngine {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        return JSON.parse(raw);
+        const loaded: LocalDBState = JSON.parse(raw);
+        if (!loaded.profiles || loaded.profiles.length === 0) {
+          loaded.profiles = getInitialState().profiles;
+        } else {
+          // Ensure default admin exists if missing
+          const hasAdmin = loaded.profiles.some((p) => p.email.toLowerCase() === 'admin@lexedu.vn');
+          if (!hasAdmin) {
+            loaded.profiles.push(getInitialState().profiles[0]);
+          }
+        }
+        return loaded;
       }
     } catch (err) {
       console.error('[DBStore] Error loading state:', err);
@@ -130,7 +161,9 @@ class DBStoreEngine {
   }
 
   getProfileByEmail(email: string): UserProfile | undefined {
-    return this.state.profiles.find((p) => p.email.toLowerCase() === email.toLowerCase());
+    if (!email) return undefined;
+    const cleanEmail = email.trim().toLowerCase();
+    return this.state.profiles.find((p) => p.email.trim().toLowerCase() === cleanEmail);
   }
 
   saveProfile(profile: UserProfile): UserProfile {

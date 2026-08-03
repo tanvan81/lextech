@@ -87,8 +87,12 @@ export class AuthService {
   }
 
   async login(email: string, pass: string): Promise<UserProfile> {
-    const profile = dbStore.getProfileByEmail(email);
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const profile = dbStore.getProfileByEmail(cleanEmail);
     if (!profile) {
+      throw new Error('Email hoặc mật khẩu không chính xác.');
+    }
+    if (profile.password && profile.password !== pass.trim()) {
       throw new Error('Email hoặc mật khẩu không chính xác.');
     }
     if (profile.status === 'BLOCKED') {
@@ -111,15 +115,17 @@ export class AuthService {
   }
 
   async register(fullName: string, email: string, pass: string): Promise<UserProfile> {
-    const existing = dbStore.getProfileByEmail(email);
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const existing = dbStore.getProfileByEmail(cleanEmail);
     if (existing) {
-      throw new Error('Email này đã được đăng ký.');
+      throw new Error('Email này đã được đăng ký trên hệ thống. Vui lòng dùng email khác hoặc đăng nhập.');
     }
 
     const newProfile: UserProfile = {
       id: 'usr-' + Math.random().toString(36).substring(2, 10),
       full_name: fullName.trim(),
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
+      password: pass.trim(),
       role: 'STUDENT',
       status: 'ACTIVE',
       created_at: new Date().toISOString(),
