@@ -106,6 +106,9 @@ class DBStoreEngine {
 
   constructor() {
     this.state = this.loadState();
+    if (!this.state.courses || this.state.courses.length === 0) {
+      this.seedDemoData();
+    }
   }
 
   private loadState(): LocalDBState {

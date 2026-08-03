@@ -85,12 +85,15 @@ export function App() {
     );
   }
 
+  // Normalize route path (strip query params and trailing slash)
+  const cleanRoute = currentRoute.split('?')[0].replace(/\/$/, '') || '/';
+
   // Check if route is in Admin section
-  const isAdminRoute = currentRoute.startsWith('/admin');
+  const isAdminRoute = cleanRoute.startsWith('/admin');
 
   // Check if route is Lesson Player (Standalone Fullscreen Layout)
   const isLessonPlayerRoute =
-    currentRoute.startsWith('/student/learn/') || currentRoute.startsWith('/student/courses/');
+    cleanRoute.startsWith('/student/learn/') || cleanRoute.startsWith('/student/courses/');
 
   if (isLessonPlayerRoute) {
     if (!currentUser) {
@@ -106,7 +109,7 @@ export function App() {
     }
 
     // Extract courseId and lessonId
-    const cleanPath = currentRoute
+    const cleanPath = cleanRoute
       .replace('/student/learn/', '')
       .replace('/student/courses/', '');
     const parts = cleanPath.split('/');
@@ -127,59 +130,86 @@ export function App() {
   if (isAdminRoute && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')) {
     return (
       <div className="flex min-h-screen bg-slate-100 font-sans antialiased text-slate-900">
-        <AdminSidebar currentRoute={currentRoute} onNavigate={navigate} currentUser={currentUser} onLogout={handleLogout} />
+        <AdminSidebar currentRoute={cleanRoute} onNavigate={navigate} currentUser={currentUser} onLogout={handleLogout} />
         <main className="flex-1 overflow-y-auto">
-          {currentRoute === '/admin' && <AdminDashboard onNavigate={navigate} currentUser={currentUser} />}
-          {currentRoute === '/admin/courses' && <CourseManagerPage onNavigate={navigate} />}
-          {currentRoute === '/admin/courses/create' && <CourseFormPage onNavigate={navigate} />}
-          {currentRoute.match(/^\/admin\/courses\/([^/]+)\/edit$/) && (
-            <CourseFormPage courseId={currentRoute.split('/')[3]} onNavigate={navigate} />
+          {cleanRoute === '/admin' && <AdminDashboard onNavigate={navigate} currentUser={currentUser} />}
+          {cleanRoute === '/admin/courses' && <CourseManagerPage onNavigate={navigate} />}
+          {cleanRoute === '/admin/courses/create' && <CourseFormPage onNavigate={navigate} />}
+          {cleanRoute.match(/^\/admin\/courses\/([^/]+)\/edit$/) && (
+            <CourseFormPage courseId={cleanRoute.split('/')[3]} onNavigate={navigate} />
           )}
-          {currentRoute.match(/^\/admin\/courses\/([^/]+)\/curriculum$/) && (
-            <CurriculumBuilderPage courseId={currentRoute.split('/')[3]} onNavigate={navigate} />
+          {cleanRoute.match(/^\/admin\/courses\/([^/]+)\/curriculum$/) && (
+            <CurriculumBuilderPage courseId={cleanRoute.split('/')[3]} onNavigate={navigate} />
           )}
-          {currentRoute.match(/^\/admin\/lessons\/([^/]+)\/edit$/) && (
-            <LessonEditorPage lessonId={currentRoute.split('/')[3]} onNavigate={navigate} />
+          {cleanRoute.match(/^\/admin\/lessons\/([^/]+)\/edit$/) && (
+            <LessonEditorPage lessonId={cleanRoute.split('/')[3]} onNavigate={navigate} />
           )}
-          {currentRoute === '/admin/students' && <StudentManagerPage onNavigate={navigate} currentUser={currentUser} />}
-          {currentRoute.match(/^\/admin\/students\/([^/]+)$/) && (
-            <StudentDetailPage userId={currentRoute.split('/')[3]} onNavigate={navigate} />
+          {cleanRoute === '/admin/students' && <StudentManagerPage onNavigate={navigate} currentUser={currentUser} />}
+          {cleanRoute.match(/^\/admin\/students\/([^/]+)$/) && (
+            <StudentDetailPage userId={cleanRoute.split('/')[3]} onNavigate={navigate} />
           )}
-          {currentRoute === '/admin/enrollment-requests' && <EnrollmentRequestsPage />}
-          {currentRoute === '/admin/categories' && <CategoryManagerPage />}
-          {currentRoute.startsWith('/admin/system') && (
-            <SystemCenter tab={currentRoute.replace('/admin/system/', '') || 'overview'} onNavigate={navigate} />
+          {cleanRoute === '/admin/enrollment-requests' && <EnrollmentRequestsPage />}
+          {cleanRoute === '/admin/categories' && <CategoryManagerPage />}
+          {cleanRoute.startsWith('/admin/system') && (
+            <SystemCenter tab={cleanRoute.replace('/admin/system/', '') || 'overview'} onNavigate={navigate} />
           )}
         </main>
       </div>
     );
   }
 
+  // Render Main Content Helper
+  const renderMainContent = () => {
+    if (cleanRoute === '/') {
+      return <HomePage onNavigate={navigate} currentUser={currentUser} />;
+    }
+    if (cleanRoute === '/courses') {
+      return <CourseListPage onNavigate={navigate} currentUser={currentUser} />;
+    }
+    if (cleanRoute.startsWith('/courses/')) {
+      const slug = cleanRoute.replace('/courses/', '');
+      if (slug) {
+        return <CourseDetailPage slug={slug} onNavigate={navigate} currentUser={currentUser} />;
+      }
+      return <CourseListPage onNavigate={navigate} currentUser={currentUser} />;
+    }
+    if (cleanRoute === '/login') {
+      return <LoginPage onNavigate={navigate} onLoginSuccess={handleLoginSuccess} />;
+    }
+    if (cleanRoute === '/register') {
+      return <RegisterPage onNavigate={navigate} onRegisterSuccess={handleLoginSuccess} />;
+    }
+
+    // Student Protected Routes
+    if (cleanRoute.startsWith('/student')) {
+      if (!currentUser) {
+        return <LoginPage onNavigate={navigate} onLoginSuccess={handleLoginSuccess} />;
+      }
+      if (cleanRoute === '/student' || cleanRoute === '/student/dashboard') {
+        return <StudentDashboard currentUser={currentUser} onNavigate={navigate} />;
+      }
+      if (cleanRoute === '/student/my-courses') {
+        return <MyCoursesPage currentUser={currentUser} onNavigate={navigate} />;
+      }
+      if (cleanRoute === '/student/profile') {
+        return (
+          <StudentProfilePage currentUser={currentUser} onUpdateProfile={(u) => setCurrentUser(u)} />
+        );
+      }
+      if (cleanRoute === '/student/settings') {
+        return <StudentSettingsPage currentUser={currentUser} />;
+      }
+    }
+
+    // Fallback if route not matched
+    return <CourseListPage onNavigate={navigate} currentUser={currentUser} />;
+  };
+
   // Render Standard Public & Student Layout
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans antialiased text-slate-900 selection:bg-indigo-500 selection:text-white">
       <Header currentUser={currentUser} onNavigate={navigate} onLogout={handleLogout} />
-
-      <main className="flex-1">
-        {currentRoute === '/' && <HomePage onNavigate={navigate} currentUser={currentUser} />}
-        {currentRoute.startsWith('/courses') && currentRoute === '/courses' && (
-          <CourseListPage onNavigate={navigate} currentUser={currentUser} />
-        )}
-        {currentRoute.startsWith('/courses/') && currentRoute !== '/courses' && (
-          <CourseDetailPage slug={currentRoute.replace('/courses/', '')} onNavigate={navigate} currentUser={currentUser} />
-        )}
-        {currentRoute === '/login' && <LoginPage onNavigate={navigate} onLoginSuccess={handleLoginSuccess} />}
-        {currentRoute === '/register' && <RegisterPage onNavigate={navigate} onRegisterSuccess={handleLoginSuccess} />}
-
-        {/* Student Protected Routes */}
-        {currentRoute === '/student' && currentUser && <StudentDashboard currentUser={currentUser} onNavigate={navigate} />}
-        {currentRoute === '/student/my-courses' && currentUser && <MyCoursesPage currentUser={currentUser} onNavigate={navigate} />}
-        {currentRoute === '/student/profile' && currentUser && (
-          <StudentProfilePage currentUser={currentUser} onUpdateProfile={(u) => setCurrentUser(u)} />
-        )}
-        {currentRoute === '/student/settings' && currentUser && <StudentSettingsPage currentUser={currentUser} />}
-      </main>
-
+      <main className="flex-1">{renderMainContent()}</main>
       <Footer onNavigate={navigate} />
     </div>
   );
