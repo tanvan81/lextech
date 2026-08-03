@@ -109,11 +109,12 @@ class DBStoreEngine {
     if (!this.state.courses || this.state.courses.length === 0) {
       this.seedDemoData();
     } else {
-      // Ensure Course 1 has full curriculum if running on older local storage state
-      const course1Sections = (this.state.sections || []).filter(
-        (s) => s.course_id === 'd1000000-0000-0000-0000-000000000001'
-      );
-      if (course1Sections.length < 2) {
+      // Ensure Course 1 has full 8 lessons across its 2 chapters for existing local storage states
+      const c1SecIds = (this.state.sections || [])
+        .filter((s) => s.course_id === 'd1000000-0000-0000-0000-000000000001')
+        .map((s) => s.id);
+      const c1LessonsCount = (this.state.lessons || []).filter((l) => c1SecIds.includes(l.section_id)).length;
+      if (c1LessonsCount < 8) {
         this.seedDemoData();
       }
     }
@@ -457,6 +458,19 @@ class DBStoreEngine {
       this.saveState();
     }
     return p;
+  }
+
+  deleteProfile(userId: string): boolean {
+    const p = this.getProfileById(userId);
+    if (!p) return false;
+    if (p.role === 'SUPER_ADMIN') {
+      throw new Error('Không thể xóa tài khoản Quản trị viên tối cao (SUPER_ADMIN).');
+    }
+    this.state.profiles = this.state.profiles.filter((profile) => profile.id !== userId);
+    this.state.enrollments = this.state.enrollments.filter((e) => e.user_id !== userId);
+    this.state.progress = this.state.progress.filter((pr) => pr.user_id !== userId);
+    this.saveState();
+    return true;
   }
 
   createEnrollment(userId: string, courseId: string, type: 'OPEN' | 'APPROVAL_REQUIRED' | 'ADMIN_ASSIGNED', enrolledByAdmin: boolean = false): Enrollment {
