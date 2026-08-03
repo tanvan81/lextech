@@ -108,6 +108,14 @@ class DBStoreEngine {
     this.state = this.loadState();
     if (!this.state.courses || this.state.courses.length === 0) {
       this.seedDemoData();
+    } else {
+      // Ensure Course 1 has full curriculum if running on older local storage state
+      const course1Sections = (this.state.sections || []).filter(
+        (s) => s.course_id === 'd1000000-0000-0000-0000-000000000001'
+      );
+      if (course1Sections.length < 2) {
+        this.seedDemoData();
+      }
     }
   }
 
@@ -663,7 +671,7 @@ class DBStoreEngine {
     const s1 = this.saveSection({
       id: 's1000000-0000-0000-0000-000000000001',
       course_id: c1.id,
-      title: 'Chương 1: Tổng quan về ChatGPT',
+      title: 'Chương 1: Tổng quan và thiết lập ban đầu với ChatGPT',
       description: 'Giới thiệu về giao diện và nguyên lý hoạt động',
       sort_order: 1,
       status: 'PUBLISHED',
@@ -672,13 +680,13 @@ class DBStoreEngine {
       updated_at: new Date().toISOString(),
     });
 
-    const l1 = this.saveLesson({
+    this.saveLesson({
       id: 'l1000000-0000-0000-0000-000000000001',
       section_id: s1.id,
-      title: 'Bài 1: Giới thiệu ChatGPT và OpenAI',
-      slug: 'bai-1-gioi-thieu-chatgpt',
+      title: 'Bài 1: Trí tuệ nhân tạo AI và Generative AI là gì?',
+      slug: 'bai-1-tri-tue-nhan-tao-ai',
       lesson_type: 'TEXT',
-      text_content: '<h3>Chào mừng bạn đến với khóa học Làm quen với ChatGPT</h3><p>Trong bài học này, chúng ta sẽ tìm hiểu lịch sử phát triển của Mô hình ngôn ngữ lớn (LLM) và cách truy cập ChatGPT trên web và di động.</p><h4>1. ChatGPT là gì?</h4><p>ChatGPT là trợ lý AI thông minh do OpenAI phát triển, có khả năng hiểu và phản hồi ngôn ngữ tự nhiên như con người.</p>',
+      text_content: '<h3>Bài 1: Trí tuệ nhân tạo AI và Generative AI là gì?</h3><p>Trong bài học này, chúng ta sẽ tìm hiểu khái niệm tổng quan về Trí tuệ nhân tạo (AI), Machine Learning, Deep Learning và sự bùng nổ của Generative AI (AI Tạo Sinh).</p><h4>1. AI Tạo Sinh là gì?</h4><p>Generative AI là phân nhánh của AI có khả năng tạo ra nội dung mới như văn bản, hình ảnh, âm thanh và mã nguồn dựa trên dữ liệu đã được huấn luyện.</p>',
       estimated_duration: 15,
       sort_order: 1,
       is_preview: true,
@@ -689,7 +697,7 @@ class DBStoreEngine {
       updated_at: new Date().toISOString(),
     });
 
-    const l2 = this.saveLesson({
+    this.saveLesson({
       id: 'l1000000-0000-0000-0000-000000000002',
       section_id: s1.id,
       title: 'Bài 2: Hướng dẫn giao diện và câu lệnh chuẩn',
@@ -701,6 +709,122 @@ class DBStoreEngine {
       sort_order: 2,
       is_preview: false,
       allow_download: false,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000003',
+      section_id: s1.id,
+      title: 'Bài 3: Đăng ký tài khoản và cài đặt ChatGPT trên điện thoại',
+      slug: 'bai-3-dang-ky-tai-khoan',
+      lesson_type: 'SLIDE',
+      slide_url: 'https://drive.google.com/file/d/1KAegnGRymJqTqsL4uJyN-yVcb2rdLQUE/view?usp=sharing',
+      text_content: '<p>Hướng dẫn chi tiết từng bước tạo tài khoản OpenAI bằng Email và cài đặt ứng dụng ChatGPT chính thức trên smartphone (iOS & Android).</p>',
+      estimated_duration: 15,
+      sort_order: 3,
+      is_preview: true,
+      allow_download: true,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000004',
+      section_id: s1.id,
+      title: 'Bài 4: Làm quen giao diện ChatGPT trên máy tính và điện thoại',
+      slug: 'bai-4-lam-quen-giao-dien',
+      lesson_type: 'TEXT',
+      text_content: '<h3>Thao tác giao diện ChatGPT</h3><p>Khám phá Sidebar quản lý lịch sử trò chuyện, nút tạo Chat mới, chọn Model (GPT-4o, GPT-4o mini) và các tùy chọn cài đặt cá nhân hóa.</p>',
+      estimated_duration: 15,
+      sort_order: 4,
+      is_preview: false,
+      allow_download: true,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000005',
+      section_id: s1.id,
+      title: 'Bài 5: Các gói tài khoản, mô hình và cách chọn công cụ phù hợp',
+      slug: 'bai-5-cac-goi-tai-khoan',
+      lesson_type: 'VIDEO',
+      video_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      text_content: '<p>Phân tích sự khác biệt giữa phiên bản ChatGPT Miễn phí và ChatGPT Plus. Khi nào bạn nên nâng cấp và cách chọn phiên bản phù hợp nhất với nhu cầu.</p>',
+      estimated_duration: 15,
+      sort_order: 5,
+      is_preview: false,
+      allow_download: false,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const s2 = this.saveSection({
+      id: 's1000000-0000-0000-0000-000000000002',
+      course_id: c1.id,
+      title: 'Chương 2: Viết câu lệnh chuẩn – Tối ưu kết quả từ ChatGPT',
+      description: 'Kỹ năng soạn thảo Prompt chuyên nghiệp và tối ưu câu trả lời',
+      sort_order: 2,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000006',
+      section_id: s2.id,
+      title: 'Bài 1: Prompt là gì? Vì sao cùng một câu hỏi lại cho kết quả khác nhau?',
+      slug: 'bai-1-prompt-la-gi',
+      lesson_type: 'TEXT',
+      text_content: '<h3>Bài 1: Prompt là gì?</h3><p>Prompt là câu lệnh hoặc yêu cầu đầu vào bạn gửi cho AI. Tìm hiểu lý do tại sao cách đặt câu hỏi đóng vai trò quyết định 90% chất lượng phản hồi từ ChatGPT.</p>',
+      estimated_duration: 15,
+      sort_order: 1,
+      is_preview: true,
+      allow_download: true,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000007',
+      section_id: s2.id,
+      title: 'Bài 2: Cấu trúc 6 thành phần của một Prompt chuyên nghiệp',
+      slug: 'bai-2-cau-truc-6-thanh-phan-prompt',
+      lesson_type: 'TEXT',
+      text_content: '<h3>Cấu trúc 6 thành phần của Prompt đỉnh cao</h3><ul><li><strong>1. Vai trò (Role):</strong> Gán vai trò cho AI (ví dụ: Chuyên gia Marketing, Luật sư).</li><li><strong>2. Nhiệm vụ (Task):</strong> Mô tả chính xác việc AI cần thực hiện.</li><li><strong>3. Ngữ cảnh (Context):</strong> Cung cấp thông tin nền tảng.</li><li><strong>4. Định dạng (Format):</strong> Bảng biểu, danh sách, hay đoạn văn.</li><li><strong>5. Giọng văn (Tone):</strong> Trang trọng, thân thiện hay thuyết phục.</li><li><strong>6. Ví dụ (Example):</strong> Đưa ra mẫu kết quả mong muốn.</li></ul>',
+      estimated_duration: 20,
+      sort_order: 2,
+      is_preview: false,
+      allow_download: true,
+      status: 'PUBLISHED',
+      is_demo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    this.saveLesson({
+      id: 'l1000000-0000-0000-0000-000000000008',
+      section_id: s2.id,
+      title: 'Bài 3: Các mẫu Prompt ứng dụng công việc văn phòng',
+      slug: 'bai-3-cac-mau-prompt-van-phong',
+      lesson_type: 'TEXT',
+      text_content: '<h3>Bộ Prompt mẫu văn phòng</h3><p>Tổng hợp các mẫu Prompt thực chiến dùng để viết email làm việc với đối tác, tóm tắt nội dung cuộc họp, lập kế hoạch công việc tuần và biên dịch tài liệu đa ngôn ngữ.</p>',
+      estimated_duration: 25,
+      sort_order: 3,
+      is_preview: false,
+      allow_download: true,
       status: 'PUBLISHED',
       is_demo: true,
       created_at: new Date().toISOString(),
