@@ -16,6 +16,7 @@ import {
   UserRole,
   UserStatus
 } from '../types';
+import { getSupabaseBrowserClient, getSupabaseCredentials } from '../lib/supabase/client';
 import { getSupabaseAdminClient } from '../lib/supabase/admin';
 
 const STORAGE_KEY = 'lexedu_db_v3_store';
@@ -118,6 +119,163 @@ class DBStoreEngine {
         this.seedDemoData();
       }
     }
+
+    // Background sync with Supabase if credentials exist
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        this.syncFromSupabase().catch((err) => console.warn('[DBStore] Background Supabase sync failed:', err));
+      }, 500);
+    }
+  }
+
+  public getSupabaseClient() {
+    return getSupabaseBrowserClient() || getSupabaseAdminClient();
+  }
+
+  public async syncFromSupabase(): Promise<boolean> {
+    const client = this.getSupabaseClient();
+    if (!client) return false;
+
+    try {
+      // 1. Sync Profiles
+      const { data: profiles, error: pErr } = await client.from('profiles').select('*');
+      if (!pErr && profiles && profiles.length > 0) {
+        const merged = [...this.state.profiles];
+        profiles.forEach((p: any) => {
+          const idx = merged.findIndex((m) => m.id === p.id || m.email.trim().toLowerCase() === p.email.trim().toLowerCase());
+          if (idx >= 0) {
+            merged[idx] = { ...merged[idx], ...p };
+          } else {
+            merged.push({
+              id: p.id,
+              full_name: p.full_name,
+              email: p.email,
+              role: p.role || 'STUDENT',
+              status: p.status || 'ACTIVE',
+              is_blocked: p.status === 'BLOCKED' || p.is_blocked || false,
+              created_at: p.created_at || new Date().toISOString(),
+              updated_at: p.updated_at || new Date().toISOString(),
+            });
+          }
+        });
+        this.state.profiles = merged;
+      }
+
+      // 2. Sync Courses
+      const { data: courses, error: cErr } = await client.from('courses').select('*');
+      if (!cErr && courses && courses.length > 0) {
+        this.state.courses = courses as any;
+      }
+
+      // 3. Sync Sections
+      const { data: sections, error: sErr } = await client.from('course_sections').select('*');
+      if (!sErr && sections && sections.length > 0) {
+        this.state.sections = sections as any;
+      }
+
+      // 4. Sync Lessons
+      const { data: lessons, error: lErr } = await client.from('lessons').select('*');
+      if (!lErr && lessons && lessons.length > 0) {
+        this.state.lessons = lessons as any;
+      }
+
+      // 5. Sync Enrollments
+      const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
+      if (!eErr && enrollments && enrollments.length > 0) {
+        this.state.enrollments = enrollments as any;
+      }
+
+      // 6. Sync Progress
+      const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
+      if (!prErr && progress && progress.length > 0) {
+        this.state.progress = progress as any;
+      }
+
+      this.saveState();
+
+      // If Supabase courses table was completely empty, seed data to Supabase
+      if (!courses || courses.length === 0) {
+        await this.uploadAllDataToSupabase();
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('[DBStore] Error during Supabase sync:', err);
+      return false;
+    }
+  }
+
+  public async uploadAllDataToSupabase(): Promise<{ success: boolean; message: string }> {
+    const client = this.getSupabaseClient();
+    if (!client) {
+      throw new Error('Chưa kết nối Supabase Client. Vui lòng khai báo VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY trong Cài Đặt Hạ Tầng.');
+    }
+
+    try {
+      const cleanProfiles = this.state.profiles.map((p) => ({
+        id: p.id,
+        full_name: p.full_name,
+        email: p.email.trim().toLowerCase(),
+        role: p.role,
+        status: p.is_blocked ? 'BLOCKED' : (p.status || 'ACTIVE'),
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+      }));
+
+      const cleanCourses = this.state.courses.map(({ category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...c }: any) => c);
+      const cleanSections = this.state.sections.map(({ lessons, ...s }: any) => s);
+      const cleanLessons = this.state.lessons;
+      const cleanEnrollments = this.state.enrollments.map(({ course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...e }: any) => e);
+      const cleanProgress = this.state.progress;
+
+      if (cleanProfiles.length > 0) await client.from('profiles').upsert(cleanProfiles);
+      if (cleanCourses.length > 0) await client.from('courses').upsert(cleanCourses);
+      if (cleanSections.length > 0) await client.from('course_sections').upsert(cleanSections);
+      if (cleanLessons.length > 0) await client.from('lessons').upsert(cleanLessons);
+      if (cleanEnrollments.length > 0) await client.from('enrollments').upsert(cleanEnrollments);
+      if (cleanProgress.length > 0) await client.from('lesson_progress').upsert(cleanProgress);
+
+      this.logAudit({ action: 'Đồng bộ toàn bộ dữ liệu hệ thống lên Supabase thành công', action_level: 'INFO' });
+      return { success: true, message: 'Đã đồng bộ toàn bộ khóa học, bài học và tài khoản lên cơ sở dữ liệu Supabase!' };
+    } catch (err: any) {
+      console.error('[DBStore] Upload to Supabase failed:', err);
+      throw new Error(err?.message || 'Lỗi khi upload dữ liệu lên Supabase.');
+    }
+  }
+
+  public async getProfileByEmailAsync(email: string): Promise<UserProfile | undefined> {
+    if (!email) return undefined;
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // First check local memory
+    let profile = this.state.profiles.find((p) => p.email.trim().toLowerCase() === cleanEmail);
+
+    // If Supabase client exists, check live Supabase database as well
+    const client = this.getSupabaseClient();
+    if (client) {
+      try {
+        const { data, error } = await client.from('profiles').select('*').eq('email', cleanEmail).maybeSingle();
+        if (!error && data) {
+          const spProfile: UserProfile = {
+            id: data.id,
+            full_name: data.full_name,
+            email: data.email,
+            password: profile?.password || data.password,
+            role: data.role || 'STUDENT',
+            status: data.status || 'ACTIVE',
+            is_blocked: data.status === 'BLOCKED',
+            created_at: data.created_at || new Date().toISOString(),
+            updated_at: data.updated_at || new Date().toISOString(),
+          };
+          this.saveProfile(spProfile);
+          return spProfile;
+        }
+      } catch (err) {
+        console.warn('[DBStore] Error querying Supabase for email:', err);
+      }
+    }
+
+    return profile;
   }
 
   private loadState(): LocalDBState {
@@ -180,13 +338,31 @@ class DBStoreEngine {
 
   saveProfile(profile: UserProfile): UserProfile {
     const idx = this.state.profiles.findIndex((p) => p.id === profile.id);
+    const updatedP = { ...profile, updated_at: new Date().toISOString() };
     if (idx >= 0) {
-      this.state.profiles[idx] = { ...profile, updated_at: new Date().toISOString() };
+      this.state.profiles[idx] = updatedP;
     } else {
-      this.state.profiles.push({ ...profile, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      this.state.profiles.push(updatedP);
     }
     this.saveState();
-    return profile;
+
+    // Async push to Supabase if connected
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('profiles').upsert({
+        id: updatedP.id,
+        full_name: updatedP.full_name,
+        email: updatedP.email.trim().toLowerCase(),
+        role: updatedP.role,
+        status: updatedP.is_blocked ? 'BLOCKED' : (updatedP.status || 'ACTIVE'),
+        created_at: updatedP.created_at,
+        updated_at: updatedP.updated_at,
+      }).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] saveProfile upsert warning:', error.message);
+      });
+    }
+
+    return updatedP;
   }
 
   updateProfileStatus(userId: string, status: UserStatus): UserProfile | undefined {
@@ -269,13 +445,25 @@ class DBStoreEngine {
 
   saveCourse(course: Course): Course {
     const idx = this.state.courses.findIndex((c) => c.id === course.id);
+    let updated: Course;
     if (idx >= 0) {
-      this.state.courses[idx] = { ...course, updated_at: new Date().toISOString() };
+      updated = { ...course, updated_at: new Date().toISOString() };
+      this.state.courses[idx] = updated;
     } else {
-      this.state.courses.push({ ...course, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      updated = { ...course, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      this.state.courses.push(updated);
     }
     this.saveState();
-    return course;
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      const { category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...cleanC }: any = updated;
+      client.from('courses').upsert(cleanC).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] saveCourse warning:', error.message);
+      });
+    }
+
+    return updated;
   }
 
   deleteCourse(id: string): boolean {
@@ -287,6 +475,13 @@ class DBStoreEngine {
     this.state.enrollments = this.state.enrollments.filter((e) => e.course_id !== id);
     this.state.progress = this.state.progress.filter((p) => p.course_id !== id);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('courses').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteCourse warning:', error.message);
+      });
+    }
     return true;
   }
 
@@ -446,6 +641,13 @@ class DBStoreEngine {
   deleteEnrollment(id: string): boolean {
     this.state.enrollments = this.state.enrollments.filter((e) => e.id !== id);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('enrollments').delete().eq('id', id).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteEnrollment warning:', error.message);
+      });
+    }
     return true;
   }
 
@@ -456,6 +658,16 @@ class DBStoreEngine {
       p.status = isBlocked ? 'BLOCKED' : 'ACTIVE';
       p.updated_at = new Date().toISOString();
       this.saveState();
+
+      const client = this.getSupabaseClient();
+      if (client) {
+        client.from('profiles').update({
+          status: p.status,
+          updated_at: p.updated_at,
+        }).eq('id', userId).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] setBlockUser warning:', error.message);
+        });
+      }
     }
     return p;
   }
@@ -470,6 +682,15 @@ class DBStoreEngine {
     this.state.enrollments = this.state.enrollments.filter((e) => e.user_id !== userId);
     this.state.progress = this.state.progress.filter((pr) => pr.user_id !== userId);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('profiles').delete().eq('id', userId).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] deleteProfile warning:', error.message);
+      });
+      client.from('enrollments').delete().eq('user_id', userId).then(() => {});
+      client.from('lesson_progress').delete().eq('user_id', userId).then(() => {});
+    }
     return true;
   }
 
@@ -505,6 +726,15 @@ class DBStoreEngine {
 
     this.state.enrollments.push(newEnrollment);
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      const { course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...cleanE }: any = newEnrollment;
+      client.from('enrollments').upsert(cleanE).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] createEnrollment warning:', error.message);
+      });
+    }
+
     this.logAudit({ action: `Đăng ký khóa học (${status})`, action_level: 'INFO', entity_type: 'enrollment', entity_id: newEnrollment.id });
     return newEnrollment;
   }
@@ -519,6 +749,15 @@ class DBStoreEngine {
       }
       enr.updated_at = new Date().toISOString();
       this.saveState();
+
+      const client = this.getSupabaseClient();
+      if (client) {
+        const { course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...cleanE }: any = enr;
+        client.from('enrollments').upsert(cleanE).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] updateEnrollmentStatus warning:', error.message);
+        });
+      }
+
       this.logAudit({ action: `Cập nhật trạng thái tham gia: ${status}`, action_level: 'INFO', entity_type: 'enrollment', entity_id: id });
     }
     return enr;
@@ -584,6 +823,18 @@ class DBStoreEngine {
     }
 
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      client.from('lesson_progress').upsert(prog).then(({ error }) => {
+        if (error) console.warn('[Supabase Sync] markLessonProgress warning:', error.message);
+      });
+      if (enr) {
+        const { course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...cleanE }: any = enr;
+        client.from('enrollments').upsert(cleanE).then(() => {});
+      }
+    }
+
     return { progress: prog, enrollmentPercent: percent };
   }
 

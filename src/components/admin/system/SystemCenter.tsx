@@ -16,6 +16,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { dbStore } from '../../../services/dbStore';
+import { getSupabaseBrowserClient, getSupabaseCredentials } from '../../../lib/supabase/client';
 import { Button } from '../../ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../ui/Card';
 import { Badge } from '../../ui/Badge';
@@ -34,6 +35,76 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
 
   const auditLogs = dbStore.getAuditLogs();
 
+  // Supabase State inside SystemCenter
+  const creds = getSupabaseCredentials();
+  const [spUrl, setSpUrl] = useState<string>(creds.url || '');
+  const [spAnonKey, setSpAnonKey] = useState<string>(creds.anonKey || '');
+  const [spTesting, setSpTesting] = useState<boolean>(false);
+  const [spStatusMsg, setSpStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  const handleSaveSupabaseConfig = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lexedu_supabase_url', spUrl.trim());
+      localStorage.setItem('lexedu_supabase_anon_key', spAnonKey.trim());
+    }
+    const client = getSupabaseBrowserClient(spUrl.trim(), spAnonKey.trim());
+    if (client) {
+      setSpStatusMsg({ type: 'success', text: 'Đã lưu cấu hình kết nối Supabase thành công!' });
+      dbStore.syncFromSupabase();
+    } else {
+      setSpStatusMsg({ type: 'error', text: 'Vui lòng điền đúng thông tin URL và Key của Supabase.' });
+    }
+  };
+
+  const handleTestSupabaseConnection = async () => {
+    setSpTesting(true);
+    setSpStatusMsg(null);
+    try {
+      const client = getSupabaseBrowserClient(spUrl.trim() || undefined, spAnonKey.trim() || undefined);
+      if (!client) {
+        throw new Error('Chưa cấu hình Supabase URL hoặc Anon Key.');
+      }
+      const { data, error } = await client.from('profiles').select('id').limit(1);
+      if (error) {
+        throw new Error(`Supabase trả về lỗi: ${error.message}`);
+      }
+      setSpStatusMsg({ type: 'success', text: '🟢 Kết nối Supabase thành công! Cơ sở dữ liệu hoạt động bình thường.' });
+    } catch (err: any) {
+      setSpStatusMsg({ type: 'error', text: `🔴 Lỗi kết nối Supabase: ${err.message || err}` });
+    } finally {
+      setSpTesting(false);
+    }
+  };
+
+  const handleUploadToSupabase = async () => {
+    setSpTesting(true);
+    setSpStatusMsg(null);
+    try {
+      const res = await dbStore.uploadAllDataToSupabase();
+      setSpStatusMsg({ type: 'success', text: `🟢 ${res.message}` });
+    } catch (err: any) {
+      setSpStatusMsg({ type: 'error', text: `🔴 Lỗi đồng bộ dữ liệu: ${err.message}` });
+    } finally {
+      setSpTesting(false);
+    }
+  };
+
+  const handleFetchFromSupabase = async () => {
+    setSpTesting(true);
+    setSpStatusMsg(null);
+    try {
+      const ok = await dbStore.syncFromSupabase();
+      if (ok) {
+        setSpStatusMsg({ type: 'success', text: '🟢 Đã tải dữ liệu mới nhất từ Supabase về hệ thống web!' });
+      } else {
+        setSpStatusMsg({ type: 'error', text: '🔴 Không thể tải dữ liệu. Kiểm tra lại thông tin Supabase.' });
+      }
+    } catch (err: any) {
+      setSpStatusMsg({ type: 'error', text: `🔴 ${err.message}` });
+    } finally {
+      setSpTesting(false);
+    }
+  };
   const handleExecuteReset = () => {
     if (resetLevel === null) return;
 
@@ -155,17 +226,74 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
       {activeTab === 'database' && (
         <Card>
           <CardHeader>
-            <CardTitle>Cấu Hình Kết Nối Cơ Sở Dữ Liệu</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-indigo-600" />
+              <span>Cấu Hình & Đồng Bộ Cơ Sở Dữ Liệu Supabase</span>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-xs">
-            <div className="p-4 bg-slate-900 text-slate-200 rounded-xl font-mono text-[11px] space-y-2">
-              <div>VITE_SUPABASE_URL = https://demo-lexedu-supabase.co</div>
-              <div>VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</div>
-              <div>SUPABASE_SERVICE_ROLE_KEY = [SECURED SERVER ROLE]</div>
+          <CardContent className="space-y-5 text-xs">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+              <div className="font-semibold text-slate-800 text-sm">Thông tin kết nối Supabase Project</div>
+              
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-600">Supabase Project URL (VITE_SUPABASE_URL)</label>
+                <input
+                  type="text"
+                  value={spUrl}
+                  onChange={(e) => setSpUrl(e.target.value)}
+                  placeholder="https://xyz.supabase.co"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-600">Supabase Public Anon Key (VITE_SUPABASE_ANON_KEY)</label>
+                <input
+                  type="password"
+                  value={spAnonKey}
+                  onChange={(e) => setSpAnonKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1Ni..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button size="sm" onClick={handleSaveSupabaseConfig}>
+                  Lưu & Kích Hoạt Kết Nối
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleTestSupabaseConnection} disabled={spTesting}>
+                  {spTesting ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'}
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-emerald-600 font-semibold">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Kết nối dữ liệu Supabase / Local Data Store hoạt động ổn định.</span>
+
+            {spStatusMsg && (
+              <div className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                spStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                spStatusMsg.type === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                'bg-blue-50 text-blue-700 border border-blue-200'
+              }`}>
+                {spStatusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                <span>{spStatusMsg.text}</span>
+              </div>
+            )}
+
+            <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-3">
+              <div className="font-semibold text-indigo-900 text-sm flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-indigo-600" />
+                <span>Công Cụ Đồng Bộ Dữ Liệu Real-Time</span>
+              </div>
+              <p className="text-slate-600 text-xs leading-relaxed">
+                Đồng bộ toàn bộ danh sách 3 khóa học, 8 bài học, danh mục, tiến độ học tập và tất cả tài khoản học viên lên bảng dữ liệu Cloud Supabase để mọi trình duyệt đều truy cập chung một nguồn dữ liệu duy nhất.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleUploadToSupabase} disabled={spTesting}>
+                  Đồng Bộ 1-Click Lên Supabase (Upload All Data)
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleFetchFromSupabase} disabled={spTesting}>
+                  Tải Dữ Liệu Từ Supabase Về Web (Fetch Live)
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -1,10 +1,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseCredentials } from './client';
 
 let adminClientInstance: SupabaseClient | null = null;
 
 export function getSupabaseAdminClient(customUrl?: string, customServiceKey?: string): SupabaseClient | null {
-  const url = customUrl || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = customServiceKey || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const creds = getSupabaseCredentials();
+  const url = customUrl || creds.url;
+  
+  let serviceKey = customServiceKey;
+  if (!serviceKey) {
+    try {
+      const metaEnv = (import.meta as any).env || {};
+      serviceKey = metaEnv.SUPABASE_SERVICE_ROLE_KEY || metaEnv.VITE_SUPABASE_SERVICE_ROLE_KEY;
+    } catch {
+      // ignore
+    }
+  }
+  if (!serviceKey) {
+    serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  }
+  if (!serviceKey && typeof window !== 'undefined') {
+    serviceKey = localStorage.getItem('lexedu_supabase_service_key') || creds.anonKey;
+  }
 
   if (!url || !serviceKey) {
     return null;
@@ -26,3 +43,4 @@ export function getSupabaseAdminClient(customUrl?: string, customServiceKey?: st
 
   return adminClientInstance;
 }
+

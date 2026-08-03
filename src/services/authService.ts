@@ -88,14 +88,14 @@ export class AuthService {
 
   async login(email: string, pass: string): Promise<UserProfile> {
     const cleanEmail = (email || '').trim().toLowerCase();
-    const profile = dbStore.getProfileByEmail(cleanEmail);
+    const profile = await dbStore.getProfileByEmailAsync(cleanEmail);
     if (!profile) {
       throw new Error('Email hoặc mật khẩu không chính xác.');
     }
     if (profile.password && profile.password !== pass.trim()) {
       throw new Error('Email hoặc mật khẩu không chính xác.');
     }
-    if (profile.status === 'BLOCKED') {
+    if (profile.status === 'BLOCKED' || profile.is_blocked) {
       throw new Error('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.');
     }
 
@@ -116,7 +116,7 @@ export class AuthService {
 
   async register(fullName: string, email: string, pass: string): Promise<UserProfile> {
     const cleanEmail = (email || '').trim().toLowerCase();
-    const existing = dbStore.getProfileByEmail(cleanEmail);
+    const existing = await dbStore.getProfileByEmailAsync(cleanEmail);
     if (existing) {
       throw new Error('Email này đã được đăng ký trên hệ thống. Vui lòng dùng email khác hoặc đăng nhập.');
     }
