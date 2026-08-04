@@ -235,22 +235,10 @@ class DBStoreEngine {
     try {
       // 1. Sync Profiles
       const { data: profiles, error: pErr } = await client.from('profiles').select('*');
-      if (!pErr && profiles && profiles.length > 0) {
+      if (!pErr && profiles) {
         const validProfiles = profiles.filter((p: any) => p.status !== 'DELETED' && !p.email.startsWith('deleted_'));
-        const hasStudentsLocally = this.state.profiles.some((p) => p.role !== 'SUPER_ADMIN');
-
         const merged = [...this.state.profiles];
         validProfiles.forEach((p: any) => {
-          // If local data was reset and has no student profiles, skip re-importing old orphaned student profiles
-          if (!hasStudentsLocally && p.role !== 'SUPER_ADMIN') {
-            client.from('profiles').update({
-              status: 'DELETED',
-              email: `deleted_${Date.now()}_${p.id}`,
-              updated_at: new Date().toISOString(),
-            }).eq('id', p.id).then(() => {});
-            return;
-          }
-
           const idx = merged.findIndex((m) => m.id === p.id || m.email.trim().toLowerCase() === p.email.trim().toLowerCase());
           if (idx >= 0) {
             merged[idx] = { ...merged[idx], ...p };
@@ -268,102 +256,42 @@ class DBStoreEngine {
           }
         });
         this.state.profiles = merged;
-      } else if (!pErr && (!profiles || profiles.length === 0) && this.state.profiles.length > 0) {
-        const cleanProfiles = this.state.profiles.map((p) => ({
-          id: p.id,
-          full_name: p.full_name,
-          email: p.email.trim().toLowerCase(),
-          role: p.role,
-          status: p.is_blocked ? 'BLOCKED' : (p.status || 'ACTIVE'),
-          created_at: p.created_at,
-          updated_at: p.updated_at,
-        }));
-        await client.from('profiles').upsert(cleanProfiles).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload profiles warning:', error.message);
-        });
       }
 
-      // 2. Sync Categories
+      // 2. Sync Categories (Supabase is SSOT)
       const { data: categories, error: catErr } = await client.from('categories').select('*');
-      if (!catErr && categories && categories.length > 0) {
+      if (!catErr && categories) {
         this.state.categories = categories as any;
-      } else if (!catErr && (!categories || categories.length === 0) && this.state.categories.length > 0) {
-        const cleanCat = this.state.categories.map(({ courses_count, ...c }: any) => c);
-        await client.from('categories').upsert(cleanCat).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload categories warning:', error.message);
-        });
       }
 
-      // 3. Sync Courses
+      // 3. Sync Courses (Supabase is SSOT)
       const { data: courses, error: cErr } = await client.from('courses').select('*');
-      if (!cErr && courses && courses.length > 0) {
-        const courseMap = new Map<string, any>();
-        this.state.courses.forEach((c) => courseMap.set(c.id, c));
-        courses.forEach((c: any) => {
-          courseMap.set(c.id, { ...courseMap.get(c.id), ...c });
-        });
-        this.state.courses = Array.from(courseMap.values());
-      }
-      if (this.state.courses.length > 0) {
-        const cleanCourses = this.state.courses.map(({ category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...c }: any) => c);
-        await client.from('courses').upsert(cleanCourses).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload courses warning:', error.message);
-        });
+      if (!cErr && courses) {
+        this.state.courses = courses as any;
       }
 
-      // 4. Sync Sections
+      // 4. Sync Sections (Supabase is SSOT)
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
-      if (!sErr && sections && sections.length > 0) {
-        const secMap = new Map<string, any>();
-        this.state.sections.forEach((s) => secMap.set(s.id, s));
-        sections.forEach((s: any) => {
-          secMap.set(s.id, { ...secMap.get(s.id), ...s });
-        });
-        this.state.sections = Array.from(secMap.values());
-      }
-      if (this.state.sections.length > 0) {
-        const cleanSections = this.state.sections.map(({ lessons, ...s }: any) => s);
-        await client.from('course_sections').upsert(cleanSections).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload sections warning:', error.message);
-        });
+      if (!sErr && sections) {
+        this.state.sections = sections as any;
       }
 
-      // 5. Sync Lessons
+      // 5. Sync Lessons (Supabase is SSOT)
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
-      if (!lErr && lessons && lessons.length > 0) {
-        const lesMap = new Map<string, any>();
-        this.state.lessons.forEach((l) => lesMap.set(l.id, l));
-        lessons.forEach((l: any) => {
-          lesMap.set(l.id, { ...lesMap.get(l.id), ...l });
-        });
-        this.state.lessons = Array.from(lesMap.values());
-      }
-      if (this.state.lessons.length > 0) {
-        const cleanLessons = this.state.lessons.map(({ attachments, ...l }: any) => l);
-        await client.from('lessons').upsert(cleanLessons).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload lessons warning:', error.message);
-        });
+      if (!lErr && lessons) {
+        this.state.lessons = lessons as any;
       }
 
-      // 6. Sync Enrollments
+      // 6. Sync Enrollments (Supabase is SSOT)
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
-      if (!eErr && enrollments && enrollments.length > 0) {
+      if (!eErr && enrollments) {
         this.state.enrollments = enrollments as any;
-      } else if (!eErr && (!enrollments || enrollments.length === 0) && this.state.enrollments.length > 0) {
-        const cleanEnrollments = this.state.enrollments.map(({ course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...e }: any) => e);
-        await client.from('enrollments').upsert(cleanEnrollments).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload enrollments warning:', error.message);
-        });
       }
 
-      // 7. Sync Progress
+      // 7. Sync Progress (Supabase is SSOT)
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
-      if (!prErr && progress && progress.length > 0) {
+      if (!prErr && progress) {
         this.state.progress = progress as any;
-      } else if (!prErr && (!progress || progress.length === 0) && this.state.progress.length > 0) {
-        await client.from('lesson_progress').upsert(this.state.progress).then(({ error }) => {
-          if (error) console.warn('[Supabase Sync] upload progress warning:', error.message);
-        });
       }
 
       this.saveState();
@@ -422,29 +350,13 @@ class DBStoreEngine {
     );
     if (profile) return profile;
 
-    // If Supabase client exists, check live Supabase database as well
+    // If Supabase client exists, check live Supabase database
     const client = this.getSupabaseClient();
     if (client) {
       try {
         const { data, error } = await client.from('profiles').select('*').eq('email', cleanEmail).maybeSingle();
         if (!error && data) {
           if (data.status === 'DELETED' || (data.email && data.email.startsWith('deleted_'))) {
-            return undefined;
-          }
-
-          // Check if this profile exists in active local state.
-          // If local active state does NOT have this profile (e.g. after reset or deletion),
-          // treat it as an orphaned row from a reset session and return undefined so registration can succeed.
-          const localMatch = this.state.profiles.find(
-            (p) => p.id === data.id || p.email.trim().toLowerCase() === cleanEmail
-          );
-          if (!localMatch) {
-            // Asynchronously update stale row in Supabase so it doesn't conflict
-            client.from('profiles').update({
-              status: 'DELETED',
-              email: `deleted_${Date.now()}_${data.id}`,
-              updated_at: new Date().toISOString(),
-            }).eq('id', data.id).then(() => {});
             return undefined;
           }
 
@@ -459,6 +371,9 @@ class DBStoreEngine {
             created_at: data.created_at || new Date().toISOString(),
             updated_at: data.updated_at || new Date().toISOString(),
           };
+
+          // Save to local state so future syncs keep it
+          this.saveProfile(spProfile);
           return spProfile;
         }
       } catch (err) {
