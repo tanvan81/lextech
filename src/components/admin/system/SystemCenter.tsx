@@ -129,9 +129,9 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
         setResetSuccessMsg('🟢 Đã Re-apply 18 Migration SQL & khôi phục toàn bộ cấu trúc dữ liệu trên Supabase thành công!');
       } else if (resetLevel === 4) {
         // Factory Reset
-        await dbStore.resetToDemoData();
-        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_FACTORY_RESET', 'Khôi phục cài đặt gốc toàn bộ cơ sở dữ liệu', 'DANGER');
-        setResetSuccessMsg('🟢 Đã khôi phục cài đặt gốc Factory Reset thành công trên cả Trình duyệt & Supabase!');
+        await dbStore.factoryReset();
+        dbStore.logAudit('SUPER_ADMIN', 'SYSTEM_FACTORY_RESET', 'Khôi phục cài đặt gốc toàn bộ cơ sở dữ liệu (Xóa sạch khóa học & học viên)', 'DANGER');
+        setResetSuccessMsg('🟢 Đã xóa sạch toàn bộ khóa học, bài học, học viên và đưa hệ thống về trắng cài đặt gốc trên cả Trình duyệt & Supabase!');
       } else if (resetLevel === 5) {
         // Re-trigger Setup Wizard
         dbStore.setSetupStatus({

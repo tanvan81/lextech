@@ -107,7 +107,8 @@ class DBStoreEngine {
 
   constructor() {
     this.state = this.loadState();
-    if (!this.state.courses || this.state.courses.length === 0) {
+    if (!this.state.courses) {
+      this.state.courses = [];
       this.seedDemoData();
     }
 
@@ -133,6 +134,7 @@ class DBStoreEngine {
       await client.from('course_sections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await client.from('courses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await client.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('profiles').delete().neq('role', 'SUPER_ADMIN');
     } catch (err) {
       console.warn('[DBStore] Wipe Supabase data warning:', err);
     }
@@ -1317,29 +1319,47 @@ class DBStoreEngine {
     return { success: true, message: 'Đã xóa toàn bộ dữ liệu mẫu.' };
   }
 
-  // Level 5: Factory Reset
+  // Level 4 / 5: Factory Reset (Wipe all courses, lessons, students & reset database)
   async factoryReset(keepSuperAdmin: boolean = true) {
     let superAdmin = keepSuperAdmin ? this.state.profiles.find((p) => p.role === 'SUPER_ADMIN') : undefined;
+    if (!superAdmin && keepSuperAdmin) {
+      superAdmin = {
+        id: 'usr-admin-001',
+        full_name: 'Quản trị viên LexEdu',
+        email: 'admin@lexedu.vn',
+        password: 'LexEdu2026@Master',
+        role: 'SUPER_ADMIN',
+        status: 'ACTIVE',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
 
     await this.wipeSupabaseData();
 
-    this.state = getInitialState();
-    if (superAdmin) {
-      this.state.profiles.push(superAdmin);
-    }
+    this.state.categories = [];
+    this.state.courses = [];
+    this.state.sections = [];
+    this.state.lessons = [];
+    this.state.attachments = [];
+    this.state.enrollments = [];
+    this.state.progress = [];
+    this.state.profiles = superAdmin ? [superAdmin] : [];
+    this.state.setupStatus.demoDataInitialized = false;
+
     this.saveState();
 
     const client = this.getSupabaseClient();
-    if (client) {
+    if (client && superAdmin) {
       try {
-        await this.uploadAllDataToSupabase();
+        await client.from('profiles').upsert(superAdmin);
       } catch (err) {
-        console.warn('[DBStore] Error syncing factory reset to Supabase:', err);
+        console.warn('[DBStore] Error syncing factory reset profile to Supabase:', err);
       }
     }
 
     this.logAudit({ action: 'FACTORY RESET TOÀN BỘ HỆ THỐNG', action_level: 'DANGER' });
-    return { success: true, message: 'Hệ thống đã được đưa về trạng thái cài đặt ban đầu.' };
+    return { success: true, message: 'Hệ thống đã được xóa sạch toàn bộ dữ liệu.' };
   }
 }
 
