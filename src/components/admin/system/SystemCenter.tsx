@@ -13,7 +13,9 @@ import {
   Terminal,
   Activity,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { dbStore } from '../../../services/dbStore';
 import { getSupabaseBrowserClient, getSupabaseCredentials } from '../../../lib/supabase/client';
@@ -21,6 +23,172 @@ import { Button } from '../../ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../ui/Card';
 import { Badge } from '../../ui/Badge';
 import { ConfirmDialog } from '../../ui/Modal';
+
+const MASTER_SQL_SCRIPT = `-- SUPABASE MASTER SCHEMA & PUBLIC ACCESS SETUP
+-- Paste and run this script in Supabase Dashboard -> SQL Editor
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+    CREATE TYPE user_role AS ENUM ('STUDENT', 'ADMIN', 'SUPER_ADMIN');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_status') THEN
+    CREATE TYPE user_status AS ENUM ('ACTIVE', 'BLOCKED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'category_status') THEN
+    CREATE TYPE category_status AS ENUM ('ACTIVE', 'HIDDEN');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'course_level') THEN
+    CREATE TYPE course_level AS ENUM ('BEGINNER', 'INTERMEDIATE', 'ADVANCED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enrollment_type') THEN
+    CREATE TYPE enrollment_type AS ENUM ('OPEN', 'APPROVAL_REQUIRED', 'ADMIN_ASSIGNED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'course_status') THEN
+    CREATE TYPE course_status AS ENUM ('DRAFT', 'PUBLISHED', 'HIDDEN', 'ARCHIVED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'content_status') THEN
+    CREATE TYPE content_status AS ENUM ('DRAFT', 'PUBLISHED', 'HIDDEN');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'lesson_type') THEN
+    CREATE TYPE lesson_type AS ENUM ('TEXT', 'VIDEO', 'SLIDE', 'DOCUMENT');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enrollment_status') THEN
+    CREATE TYPE enrollment_status AS ENUM ('PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enrolled_by') THEN
+    CREATE TYPE enrolled_by AS ENUM ('SELF', 'ADMIN');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'lesson_progress_status') THEN
+    CREATE TYPE lesson_progress_status AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED');
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  avatar_url TEXT,
+  role user_role NOT NULL DEFAULT 'STUDENT',
+  status user_status NOT NULL DEFAULT 'ACTIVE',
+  last_login_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  description TEXT,
+  sort_order INTEGER DEFAULT 0,
+  status category_status DEFAULT 'ACTIVE',
+  is_demo BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  short_description TEXT,
+  description TEXT,
+  thumbnail_url TEXT,
+  banner_url TEXT,
+  instructor_name TEXT DEFAULT 'LexEdu Instructor',
+  level course_level DEFAULT 'BEGINNER',
+  estimated_duration INTEGER DEFAULT 0,
+  enrollment_type enrollment_type DEFAULT 'OPEN',
+  status course_status DEFAULT 'DRAFT',
+  is_featured BOOLEAN DEFAULT false,
+  show_curriculum_publicly BOOLEAN DEFAULT true,
+  allow_resource_download BOOLEAN DEFAULT true,
+  sort_order INTEGER DEFAULT 0,
+  learning_outcomes JSONB DEFAULT '[]'::jsonb,
+  target_audience JSONB DEFAULT '[]'::jsonb,
+  requirements JSONB DEFAULT '[]'::jsonb,
+  is_paid BOOLEAN DEFAULT false,
+  price NUMERIC DEFAULT 0,
+  sale_price NUMERIC,
+  is_demo BOOLEAN DEFAULT false,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.course_sections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  sort_order INTEGER DEFAULT 0,
+  status content_status DEFAULT 'DRAFT',
+  is_demo BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.lessons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_id UUID REFERENCES public.course_sections(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  lesson_type lesson_type NOT NULL,
+  text_content TEXT,
+  video_url TEXT,
+  slide_url TEXT,
+  slide_file_url TEXT,
+  estimated_duration INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  is_preview BOOLEAN DEFAULT false,
+  allow_download BOOLEAN DEFAULT false,
+  status content_status DEFAULT 'DRAFT',
+  is_demo BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(section_id, slug)
+);
+
+CREATE TABLE IF NOT EXISTS public.enrollments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+  status enrollment_status DEFAULT 'PENDING',
+  enrolled_by enrolled_by DEFAULT 'SELF',
+  enrolled_at TIMESTAMPTZ DEFAULT now(),
+  approved_at TIMESTAMPTZ,
+  approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  completed_at TIMESTAMPTZ,
+  last_lesson_id UUID REFERENCES public.lessons(id) ON DELETE SET NULL,
+  progress_percent NUMERIC DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, course_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.lesson_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  lesson_id UUID REFERENCES public.lessons(id) ON DELETE CASCADE,
+  status lesson_progress_status DEFAULT 'NOT_STARTED',
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, lesson_id)
+);
+
+-- DISABLE ROW LEVEL SECURITY FOR PUBLIC ANONYMOUS ACCESS
+ALTER TABLE public.categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.courses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_sections DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lessons DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.enrollments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lesson_progress DISABLE ROW LEVEL SECURITY;
+`;
 
 interface SystemCenterProps {
   tab?: string;
@@ -40,20 +208,64 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
   const creds = getSupabaseCredentials();
   const [spUrl, setSpUrl] = useState<string>(creds.url || '');
   const [spAnonKey, setSpAnonKey] = useState<string>(creds.anonKey || '');
+  const [spServiceKey, setSpServiceKey] = useState<string>(
+    typeof window !== 'undefined' ? localStorage.getItem('lexedu_supabase_service_key') || '' : ''
+  );
+  const [showAnonKey, setShowAnonKey] = useState<boolean>(false);
+  const [showServiceKey, setShowServiceKey] = useState<boolean>(false);
   const [spTesting, setSpTesting] = useState<boolean>(false);
   const [spStatusMsg, setSpStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [sqlCopied, setSqlCopied] = useState<boolean>(false);
 
-  const handleSaveSupabaseConfig = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('lexedu_supabase_url', spUrl.trim());
-      localStorage.setItem('lexedu_supabase_anon_key', spAnonKey.trim());
+  const handleCopyMasterSql = () => {
+    navigator.clipboard.writeText(MASTER_SQL_SCRIPT);
+    setSqlCopied(true);
+    setTimeout(() => setSqlCopied(false), 3000);
+  };
+
+  // Database Live Inspector State
+  const [spInspectorData, setSpInspectorData] = useState<{
+    profiles: any[];
+    categories: any[];
+    courses: any[];
+    enrollments: any[];
+    error?: string;
+  } | null>(null);
+  const [spInspecting, setSpInspecting] = useState<boolean>(false);
+
+  const handleInspectSupabase = async () => {
+    setSpInspecting(true);
+    try {
+      const res = await dbStore.inspectSupabaseData();
+      setSpInspectorData(res);
+    } catch (err: any) {
+      setSpInspectorData({ profiles: [], categories: [], courses: [], enrollments: [], error: err.message });
+    } finally {
+      setSpInspecting(false);
     }
+  };
+
+  const handlePurgeCache = async () => {
+    setSpTesting(true);
+    try {
+      const res = await dbStore.purgeLocalCacheAndSyncSupabase();
+      setSpStatusMsg({ type: 'success', text: `🟢 ${res.message}` });
+      handleInspectSupabase();
+    } catch (err: any) {
+      setSpStatusMsg({ type: 'error', text: `🔴 Lỗi xóa cache: ${err.message}` });
+    } finally {
+      setSpTesting(false);
+    }
+  };
+
+  const handleSaveSupabaseConfig = async () => {
+    await dbStore.saveSupabaseConfig(spUrl, spAnonKey, spServiceKey);
     const client = getSupabaseBrowserClient(spUrl.trim(), spAnonKey.trim());
     if (client) {
-      setSpStatusMsg({ type: 'success', text: 'Đã lưu cấu hình kết nối Supabase thành công!' });
+      setSpStatusMsg({ type: 'success', text: '🟢 Đã lưu và cấu hình thành công Supabase URL, Anon Key & Service Key trên toàn hệ thống!' });
       dbStore.syncFromSupabase();
     } else {
-      setSpStatusMsg({ type: 'error', text: 'Vui lòng điền đúng thông tin URL và Key của Supabase.' });
+      setSpStatusMsg({ type: 'error', text: '🔴 Vui lòng điền đúng thông tin URL và Key của Supabase.' });
     }
   };
 
@@ -243,6 +455,19 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
               <div className="font-semibold text-slate-800 text-sm">Thông tin kết nối Supabase Project</div>
               
+              <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-lg text-indigo-900 text-[11px] leading-relaxed space-y-1">
+                <div className="font-semibold flex items-center gap-1.5 text-indigo-800">
+                  <span>💡 Cách lấy Supabase Anon Key từ trang Supabase Dashboard:</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-0.5 text-indigo-950 font-medium">
+                  <li>Truy cập <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="underline font-bold text-indigo-700">Supabase Dashboard</a> và chọn Dự án (Project) của bạn.</li>
+                  <li>Vào mục <strong className="text-indigo-800">Project Settings</strong> ⚙️ (ở góc dưới bảng điều khiển bên trái).</li>
+                  <li>Chọn phần <strong className="text-indigo-800">API</strong> (trong danh mục Configuration / Access control).</li>
+                  <li>Tại phần <strong className="text-indigo-800">Project API keys</strong>, sao chép khóa <code className="bg-white px-1 py-0.5 rounded border border-indigo-200 font-mono text-indigo-700">anon</code> <span className="text-slate-500 font-normal">(public)</span>.</li>
+                  <li>Dán Anon Key vừa chép vào ô bên dưới và bấm <strong>Lưu & Kích Hoạt Anon Key Mới</strong>.</li>
+                </ol>
+              </div>
+              
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-slate-600">Supabase Project URL (VITE_SUPABASE_URL)</label>
                 <input
@@ -256,18 +481,47 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
 
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-slate-600">Supabase Public Anon Key (VITE_SUPABASE_ANON_KEY)</label>
-                <input
-                  type="password"
-                  value={spAnonKey}
-                  onChange={(e) => setSpAnonKey(e.target.value)}
-                  placeholder="eyJhbGciOiJIUzI1Ni..."
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
-                />
+                <div className="relative">
+                  <input
+                    type={showAnonKey ? 'text' : 'password'}
+                    value={spAnonKey}
+                    onChange={(e) => setSpAnonKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1Ni..."
+                    className="w-full px-3 py-2 pr-10 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAnonKey(!showAnonKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  >
+                    {showAnonKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-slate-600">Supabase Service Role Key (SUPABASE_SERVICE_ROLE_KEY - Tùy chọn)</label>
+                <div className="relative">
+                  <input
+                    type={showServiceKey ? 'text' : 'password'}
+                    value={spServiceKey}
+                    onChange={(e) => setSpServiceKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1Ni... (Khuyên dùng cho quyền Admin cao nhất)"
+                    className="w-full px-3 py-2 pr-10 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowServiceKey(!showServiceKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  >
+                    {showServiceKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button size="sm" onClick={handleSaveSupabaseConfig}>
-                  Lưu & Kích Hoạt Kết Nối
+                  Lưu & Kích Hoạt Anon Key Mới
                 </Button>
                 <Button size="sm" variant="outline" onClick={handleTestSupabaseConnection} disabled={spTesting}>
                   {spTesting ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'}
@@ -286,6 +540,32 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
               </div>
             )}
 
+            {/* HƯỚNG DẪN DỰNG BẢNG SUPABASE KHI THẤY 'NO TABLES OR VIEWS' */}
+            <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-xl space-y-3">
+              <div className="font-bold text-amber-900 text-sm flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-amber-700" />
+                  <span>Khởi Tạo Bảng Supabase (Nếu Supabase Dashboard báo "No tables or views")</span>
+                </div>
+                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">Quan trọng</Badge>
+              </div>
+              <p className="text-amber-800 text-xs leading-relaxed">
+                Khi dự án Supabase mới tạo chưa có cấu trúc bảng (như màn hình Supabase Table Editor hiển thị <em>"No tables or views"</em>), bạn chỉ cần thực hiện 3 bước đơn giản sau:
+              </p>
+              <div className="bg-white/80 p-3 rounded-lg border border-amber-200 text-xs space-y-2 text-slate-700">
+                <ol className="list-decimal list-inside space-y-1.5 font-medium">
+                  <li>Bấm nút <strong>"📋 Sao Chép Mã SQL Dựng Bảng Supabase"</strong> bên dưới.</li>
+                  <li>Mở trang <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="underline font-bold text-indigo-600">Supabase Dashboard</a> ➔ Chọn mục <strong className="text-amber-900">SQL Editor 📝</strong> ➔ Dán mã vào và bấm <strong className="text-emerald-700">Run ▶️</strong>.</li>
+                  <li>Sau khi Run thành công, mở lại mục <strong>Table Editor</strong> trong Supabase sẽ thấy xuất hiện đầy đủ các bảng (<code className="bg-amber-100/80 px-1 py-0.5 rounded text-amber-900">courses, categories, lessons, profiles...</code>). Hệ thống sẽ tự động đồng bộ dữ liệu khóa học sang Supabase!</li>
+                </ol>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-2xs" onClick={handleCopyMasterSql}>
+                  {sqlCopied ? '✅ Đã Sao Chép Mã SQL Vào Bộ Nhớ Tạm!' : '📋 Sao Chép Mã SQL Dựng Bảng Supabase (Master DDL Script)'}
+                </Button>
+              </div>
+            </div>
+
             <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-3">
               <div className="font-semibold text-indigo-900 text-sm flex items-center gap-2">
                 <RefreshCw className="w-4 h-4 text-indigo-600" />
@@ -301,8 +581,105 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
                 <Button size="sm" variant="outline" onClick={handleFetchFromSupabase} disabled={spTesting}>
                   Tải Dữ Liệu Từ Supabase Về Web (Fetch Live)
                 </Button>
+                <Button size="sm" variant="outline" className="border-rose-200 text-rose-700 bg-rose-50/50 hover:bg-rose-100" onClick={handlePurgeCache} disabled={spTesting}>
+                  🧹 Xóa Cache Trình Duyệt & Tải Lại Supabase
+                </Button>
+                <Button size="sm" variant="outline" className="border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100" onClick={handleInspectSupabase} disabled={spInspecting}>
+                  {spInspecting ? 'Đang truy vấn Supabase...' : '🔍 Truy vấn Dữ liệu Trực tiếp từ Supabase (Live Query Inspector)'}
+                </Button>
               </div>
             </div>
+
+            {/* Live Database Query Inspector Results */}
+            {spInspectorData && (
+              <div className="p-4 bg-slate-900 text-white rounded-xl space-y-4 font-mono text-xs overflow-x-auto">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <span className="font-bold text-emerald-400 text-sm">📊 KẾT QUẢ TRUY VẤN TRỰC TIẾP TỪ DATABASE SUPABASE</span>
+                  <button onClick={() => setSpInspectorData(null)} className="text-slate-400 hover:text-white font-sans text-xs px-2">✕ Đóng</button>
+                </div>
+
+                {spInspectorData.error && (
+                  <div className="p-2.5 bg-rose-950/80 border border-rose-800 text-rose-300 rounded font-sans">
+                    🔴 Lỗi khi truy vấn Supabase: {spInspectorData.error}
+                  </div>
+                )}
+
+                {/* Table 1: COURSES */}
+                <div className="space-y-1.5">
+                  <div className="text-amber-400 font-bold flex items-center justify-between">
+                    <span>1. Bảng `courses` ({spInspectorData.courses.length} hàng)</span>
+                  </div>
+                  {spInspectorData.courses.length === 0 ? (
+                    <div className="text-slate-500 italic pl-2">Bảng trống (0 khóa học)</div>
+                  ) : (
+                    <div className="bg-slate-950 p-3 rounded border border-slate-800 space-y-2 max-h-48 overflow-y-auto">
+                      {spInspectorData.courses.map((c: any) => (
+                        <div key={c.id} className="p-2 bg-slate-900 rounded border border-slate-800/80 text-[11px] space-y-0.5">
+                          <div className="text-white font-bold">{c.title} <span className="text-slate-400 font-normal">({c.status})</span></div>
+                          <div className="text-slate-400 text-[10px]">ID: {c.id} | Slug: {c.slug}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Table 2: PROFILES */}
+                <div className="space-y-1.5">
+                  <div className="text-amber-400 font-bold flex items-center justify-between">
+                    <span>2. Bảng `profiles` ({spInspectorData.profiles.length} hàng)</span>
+                  </div>
+                  {spInspectorData.profiles.length === 0 ? (
+                    <div className="text-slate-500 italic pl-2">Bảng trống (0 tài khoản)</div>
+                  ) : (
+                    <div className="bg-slate-950 p-3 rounded border border-slate-800 space-y-2 max-h-48 overflow-y-auto">
+                      {spInspectorData.profiles.map((p: any) => (
+                        <div key={p.id} className="p-2 bg-slate-900 rounded border border-slate-800/80 text-[11px] space-y-0.5">
+                          <div className="text-white font-bold">{p.full_name || 'Không tên'} <span className="text-indigo-300 font-normal">({p.email})</span> - <span className="text-emerald-400">{p.role}</span></div>
+                          <div className="text-slate-400 text-[10px]">ID: {p.id} | Status: {p.status || 'ACTIVE'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Table 3: ENROLLMENT RECORDS */}
+                <div className="space-y-1.5">
+                  <div className="text-amber-400 font-bold flex items-center justify-between">
+                    <span>3. Bảng `enrollments` ({spInspectorData.enrollments.length} bản ghi đăng ký)</span>
+                  </div>
+                  {spInspectorData.enrollments.length === 0 ? (
+                    <div className="text-slate-500 italic pl-2">Bảng trống (0 bản ghi đăng ký khóa học)</div>
+                  ) : (
+                    <div className="bg-slate-950 p-3 rounded border border-slate-800 space-y-2 max-h-48 overflow-y-auto">
+                      {spInspectorData.enrollments.map((e: any) => (
+                        <div key={e.id} className="p-2 bg-slate-900 rounded border border-slate-800/80 text-[11px] space-y-0.5">
+                          <div className="text-emerald-300 font-bold">User ID: {e.user_id} ➔ Course ID: {e.course_id}</div>
+                          <div className="text-slate-400 text-[10px]">Status: {e.status} | ID: {e.id}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Table 4: CATEGORIES */}
+                <div className="space-y-1.5">
+                  <div className="text-amber-400 font-bold flex items-center justify-between">
+                    <span>4. Bảng `categories` ({spInspectorData.categories.length} danh mục)</span>
+                  </div>
+                  {spInspectorData.categories.length === 0 ? (
+                    <div className="text-slate-500 italic pl-2">Bảng trống (0 danh mục)</div>
+                  ) : (
+                    <div className="bg-slate-950 p-3 rounded border border-slate-800 flex flex-wrap gap-2">
+                      {spInspectorData.categories.map((cat: any) => (
+                        <span key={cat.id} className="px-2 py-1 bg-slate-800 text-slate-200 rounded text-[11px]">
+                          {cat.name} ({cat.slug})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

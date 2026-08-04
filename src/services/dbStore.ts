@@ -318,38 +318,51 @@ class DBStoreEngine {
 
       // 2. Sync Categories (Supabase is SSOT)
       const { data: categories, error: catErr } = await client.from('categories').select('*');
-      if (!catErr) {
-        this.state.categories = (categories as any) || [];
+      if (!catErr && Array.isArray(categories)) {
+        if (categories.length > 0) {
+          this.state.categories = categories as any;
+        } else if (this.state.categories.length > 0) {
+          await client.from('categories').upsert(this.state.categories).catch(() => {});
+        }
       }
 
       // 3. Sync Courses (Supabase is SSOT)
       const { data: courses, error: cErr } = await client.from('courses').select('*');
-      if (!cErr) {
-        this.state.courses = (courses as any) || [];
+      if (!cErr && Array.isArray(courses)) {
+        if (courses.length > 0) {
+          this.state.courses = courses as any;
+        } else if (this.state.courses.length > 0) {
+          // Auto push seed data to Supabase if Supabase table is empty
+          this.uploadAllDataToSupabase().catch(() => {});
+        }
       }
 
       // 4. Sync Sections (Supabase is SSOT)
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
-      if (!sErr) {
-        this.state.sections = (sections as any) || [];
+      if (!sErr && Array.isArray(sections)) {
+        if (sections.length > 0) {
+          this.state.sections = sections as any;
+        }
       }
 
       // 5. Sync Lessons (Supabase is SSOT)
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
-      if (!lErr) {
-        this.state.lessons = (lessons as any) || [];
+      if (!lErr && Array.isArray(lessons)) {
+        if (lessons.length > 0) {
+          this.state.lessons = lessons as any;
+        }
       }
 
       // 6. Sync Enrollments (Supabase is SSOT)
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
-      if (!eErr) {
-        this.state.enrollments = (enrollments as any) || [];
+      if (!eErr && Array.isArray(enrollments)) {
+        this.state.enrollments = enrollments as any;
       }
 
       // 7. Sync Progress (Supabase is SSOT)
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
-      if (!prErr) {
-        this.state.progress = (progress as any) || [];
+      if (!prErr && Array.isArray(progress)) {
+        this.state.progress = progress as any;
       }
 
       this.saveState();
@@ -367,6 +380,7 @@ class DBStoreEngine {
     }
 
     try {
+      const cleanCategories = this.state.categories;
       const cleanProfiles = this.state.profiles.map((p) => ({
         id: p.id,
         full_name: p.full_name,
@@ -383,6 +397,7 @@ class DBStoreEngine {
       const cleanEnrollments = this.state.enrollments.map(({ course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...e }: any) => e);
       const cleanProgress = this.state.progress;
 
+      if (cleanCategories.length > 0) await client.from('categories').upsert(cleanCategories);
       if (cleanProfiles.length > 0) await client.from('profiles').upsert(cleanProfiles);
       if (cleanCourses.length > 0) await client.from('courses').upsert(cleanCourses);
       if (cleanSections.length > 0) await client.from('course_sections').upsert(cleanSections);
