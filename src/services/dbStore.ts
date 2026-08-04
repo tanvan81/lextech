@@ -272,8 +272,14 @@ class DBStoreEngine {
       // 3. Sync Courses
       const { data: courses, error: cErr } = await client.from('courses').select('*');
       if (!cErr && courses && courses.length > 0) {
-        this.state.courses = courses as any;
-      } else if (!cErr && (!courses || courses.length === 0) && this.state.courses.length > 0) {
+        const courseMap = new Map<string, any>();
+        this.state.courses.forEach((c) => courseMap.set(c.id, c));
+        courses.forEach((c: any) => {
+          courseMap.set(c.id, { ...courseMap.get(c.id), ...c });
+        });
+        this.state.courses = Array.from(courseMap.values());
+      }
+      if (this.state.courses.length > 0) {
         const cleanCourses = this.state.courses.map(({ category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...c }: any) => c);
         await client.from('courses').upsert(cleanCourses).then(({ error }) => {
           if (error) console.warn('[Supabase Sync] upload courses warning:', error.message);
@@ -283,8 +289,14 @@ class DBStoreEngine {
       // 4. Sync Sections
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
       if (!sErr && sections && sections.length > 0) {
-        this.state.sections = sections as any;
-      } else if (!sErr && (!sections || sections.length === 0) && this.state.sections.length > 0) {
+        const secMap = new Map<string, any>();
+        this.state.sections.forEach((s) => secMap.set(s.id, s));
+        sections.forEach((s: any) => {
+          secMap.set(s.id, { ...secMap.get(s.id), ...s });
+        });
+        this.state.sections = Array.from(secMap.values());
+      }
+      if (this.state.sections.length > 0) {
         const cleanSections = this.state.sections.map(({ lessons, ...s }: any) => s);
         await client.from('course_sections').upsert(cleanSections).then(({ error }) => {
           if (error) console.warn('[Supabase Sync] upload sections warning:', error.message);
@@ -294,8 +306,14 @@ class DBStoreEngine {
       // 5. Sync Lessons
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
       if (!lErr && lessons && lessons.length > 0) {
-        this.state.lessons = lessons as any;
-      } else if (!lErr && (!lessons || lessons.length === 0) && this.state.lessons.length > 0) {
+        const lesMap = new Map<string, any>();
+        this.state.lessons.forEach((l) => lesMap.set(l.id, l));
+        lessons.forEach((l: any) => {
+          lesMap.set(l.id, { ...lesMap.get(l.id), ...l });
+        });
+        this.state.lessons = Array.from(lesMap.values());
+      }
+      if (this.state.lessons.length > 0) {
         const cleanLessons = this.state.lessons.map(({ attachments, ...l }: any) => l);
         await client.from('lessons').upsert(cleanLessons).then(({ error }) => {
           if (error) console.warn('[Supabase Sync] upload lessons warning:', error.message);

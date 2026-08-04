@@ -66,11 +66,83 @@ export const MyCoursesPage: React.FC<MyCoursesPageProps> = ({ currentUser, onNav
 
       {/* Content */}
       {filteredEnrollments.length === 0 ? (
-        <div className="p-12 text-center bg-white rounded-xl border border-slate-200 space-y-3">
-          <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-sm font-semibold text-slate-700">Không có khóa học nào trong mục này</h3>
-          <p className="text-xs text-slate-500">Khám phá danh sách khóa học thực hành để đăng ký tham gia ngay.</p>
-          <Button variant="primary" size="sm" onClick={() => onNavigate('/courses')}>Khám phá ngay</Button>
+        <div className="space-y-6">
+          <div className="p-8 text-center bg-gradient-to-br from-indigo-50/50 to-slate-50 rounded-xl border border-indigo-100 space-y-3">
+            <BookOpen className="w-10 h-10 text-indigo-400 mx-auto" />
+            <h3 className="text-base font-bold text-slate-800">Bạn chưa có khóa học nào trong mục này</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Dưới đây là danh sách toàn bộ các khóa học thực hành AI có sẵn trên hệ thống. Đăng ký tham gia ngay để bắt đầu trải nghiệm!
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <h2 className="text-base font-bold text-slate-900">Khóa Học Có Sẵn Bạn Có Thể Đăng Ký</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {dbStore.getCourses({ status: 'PUBLISHED' }).map((course) => {
+                const enr = dbStore.getEnrollment(currentUser.id, course.id);
+                const isPending = enr?.status === 'PENDING';
+                const isActive = enr?.status === 'ACTIVE';
+
+                return (
+                  <Card key={course.id} className="overflow-hidden flex flex-col hover:border-indigo-300 transition-all">
+                    <div className="aspect-video relative overflow-hidden bg-slate-100">
+                      <img
+                        src={course.thumbnail_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80'}
+                        alt={course.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-3 right-3">
+                        <Badge variant={course.enrollment_type === 'OPEN' ? 'success' : 'primary'}>
+                          {course.enrollment_type === 'OPEN' ? 'Mở tự do' : 'Cần duyệt'}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <CardContent className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-indigo-600">{course.category_name || 'Chưa phân loại'}</div>
+                        <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{course.title}</h3>
+                        <p className="text-xs text-slate-500 line-clamp-2">{course.short_description || 'Khóa học thực hành AI sinh động.'}</p>
+                      </div>
+
+                      {isActive ? (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => onNavigate(`/student/courses/${course.id}`)}
+                          icon={<PlayCircle className="w-4 h-4" />}
+                        >
+                          Vào học ngay
+                        </Button>
+                      ) : isPending ? (
+                        <div className="p-2.5 bg-amber-50 text-amber-800 text-xs rounded-lg text-center font-medium border border-amber-200">
+                          Đã đăng ký - Đang chờ duyệt
+                        </div>
+                      ) : (
+                        <Button
+                          variant={course.enrollment_type === 'OPEN' ? 'success' : 'primary'}
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => {
+                            dbStore.createEnrollment(currentUser.id, course.id, course.enrollment_type);
+                            if (course.enrollment_type === 'OPEN') {
+                              onNavigate(`/student/courses/${course.id}`);
+                            } else {
+                              window.dispatchEvent(new Event('lexedu_db_updated'));
+                            }
+                          }}
+                          icon={<BookOpen className="w-4 h-4" />}
+                        >
+                          {course.enrollment_type === 'OPEN' ? 'Đăng ký & Vào học ngay' : 'Gửi yêu cầu tham gia'}
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

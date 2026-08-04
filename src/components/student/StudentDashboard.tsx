@@ -104,12 +104,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ currentUser,
         </div>
 
         {activeEnrollments.length === 0 ? (
-          <Card>
+          <Card className="bg-gradient-to-br from-indigo-50/50 to-slate-50 border-indigo-100">
             <CardContent className="p-8 text-center space-y-3">
-              <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
-              <div className="text-sm font-semibold text-slate-700">Bạn chưa đăng ký khóa học nào</div>
-              <p className="text-xs text-slate-500">Khám phá danh sách khóa học thực hành AI tại LexEdu để tham gia ngay.</p>
-              <Button variant="primary" size="sm" onClick={() => onNavigate('/courses')}>Khám phá khóa học ngay</Button>
+              <BookOpen className="w-10 h-10 text-indigo-400 mx-auto" />
+              <div className="text-sm font-bold text-slate-800">Bạn chưa có khóa học nào đang tham gia</div>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Hãy xem danh sách các khóa học thực hành AI có sẵn bên dưới để đăng ký và bắt đầu học ngay lập tức!
+              </p>
             </CardContent>
           </Card>
         ) : (
@@ -138,6 +139,90 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ currentUser,
             ))}
           </div>
         )}
+      </div>
+
+      {/* Available Published Courses Section */}
+      <div className="space-y-4 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Zap className="w-5 h-5 text-indigo-600" />
+              Tất Cả Khóa Học AI Sẵn Có
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">Đăng ký tham gia ngay để trải nghiệm nội dung giảng dạy thực hành.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => onNavigate('/courses')} icon={<ArrowRight className="w-4 h-4" />}>
+            Xem tất cả ({dbStore.getCourses({ status: 'PUBLISHED' }).length})
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {dbStore.getCourses({ status: 'PUBLISHED' }).map((course) => {
+            const enrollment = dbStore.getEnrollment(currentUser.id, course.id);
+            const isEnrolledActive = enrollment?.status === 'ACTIVE';
+            const isPending = enrollment?.status === 'PENDING';
+
+            return (
+              <Card key={course.id} className="overflow-hidden flex flex-col hover:border-indigo-300 transition-all">
+                <div className="aspect-video relative overflow-hidden bg-slate-100">
+                  <img
+                    src={course.thumbnail_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80'}
+                    alt={course.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-3 right-3 flex gap-1">
+                    <Badge variant={course.enrollment_type === 'OPEN' ? 'success' : course.enrollment_type === 'APPROVAL_REQUIRED' ? 'warning' : 'primary'}>
+                      {course.enrollment_type === 'OPEN' ? 'Mở tự do' : course.enrollment_type === 'APPROVAL_REQUIRED' ? 'Cần duyệt' : 'Chỉ định'}
+                    </Badge>
+                  </div>
+                </div>
+
+                <CardContent className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-medium text-indigo-600">{course.category_name || 'Chưa phân loại'}</div>
+                    <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{course.title}</h3>
+                    <p className="text-xs text-slate-500 line-clamp-2">{course.short_description || 'Khóa học thực hành chuyên sâu nâng cao kỹ năng AI.'}</p>
+                  </div>
+
+                  <div>
+                    {isEnrolledActive ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={() => onNavigate(`/student/courses/${course.id}`)}
+                        icon={<PlayCircle className="w-4 h-4" />}
+                      >
+                        Vào học ngay
+                      </Button>
+                    ) : isPending ? (
+                      <div className="p-2.5 bg-amber-50 text-amber-800 text-xs rounded-lg text-center font-medium border border-amber-200">
+                        Đã gửi yêu cầu - Chờ Admin phê duyệt
+                      </div>
+                    ) : (
+                      <Button
+                        variant={course.enrollment_type === 'OPEN' ? 'success' : 'primary'}
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          dbStore.createEnrollment(currentUser.id, course.id, course.enrollment_type);
+                          if (course.enrollment_type === 'OPEN') {
+                            onNavigate(`/student/courses/${course.id}`);
+                          } else {
+                            window.dispatchEvent(new Event('lexedu_db_updated'));
+                          }
+                        }}
+                        icon={<BookOpen className="w-4 h-4" />}
+                      >
+                        {course.enrollment_type === 'OPEN' ? 'Đăng ký & Vào học ngay' : course.enrollment_type === 'APPROVAL_REQUIRED' ? 'Gửi yêu cầu tham gia' : 'Xem chi tiết khóa học'}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
