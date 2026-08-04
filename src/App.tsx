@@ -41,6 +41,21 @@ export function App() {
   const [currentRoute, setCurrentRoute] = useState<string>(window.location.pathname || '/');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(authService.getCurrentUser());
   const [setupStatus, setSetupStatus] = useState(dbStore.getSetupStatus());
+  const [, setDbTick] = useState(0);
+
+  // Sync state with dbStore updates
+  useEffect(() => {
+    const handleDbChange = () => {
+      setDbTick((prev) => prev + 1);
+      setSetupStatus(dbStore.getSetupStatus());
+    };
+    window.addEventListener('lexedu_db_updated', handleDbChange);
+    window.addEventListener('storage', handleDbChange);
+    return () => {
+      window.removeEventListener('lexedu_db_updated', handleDbChange);
+      window.removeEventListener('storage', handleDbChange);
+    };
+  }, []);
 
   // Handle URL navigation
   useEffect(() => {

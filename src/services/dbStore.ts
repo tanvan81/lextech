@@ -109,15 +109,6 @@ class DBStoreEngine {
     this.state = this.loadState();
     if (!this.state.courses || this.state.courses.length === 0) {
       this.seedDemoData();
-    } else {
-      // Ensure Course 1 has full 8 lessons across its 2 chapters for existing local storage states
-      const c1SecIds = (this.state.sections || [])
-        .filter((s) => s.course_id === 'd1000000-0000-0000-0000-000000000001')
-        .map((s) => s.id);
-      const c1LessonsCount = (this.state.lessons || []).filter((l) => c1SecIds.includes(l.section_id)).length;
-      if (c1LessonsCount < 8) {
-        this.seedDemoData();
-      }
     }
 
     // Background sync with Supabase if credentials exist
@@ -129,7 +120,22 @@ class DBStoreEngine {
   }
 
   public getSupabaseClient() {
-    return getSupabaseBrowserClient() || getSupabaseAdminClient();
+    return getSupabaseAdminClient() || getSupabaseBrowserClient();
+  }
+
+  public async wipeSupabaseData(): Promise<void> {
+    const client = this.getSupabaseClient();
+    if (!client) return;
+    try {
+      await client.from('lesson_progress').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('enrollments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('lessons').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('course_sections').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('courses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await client.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    } catch (err) {
+      console.warn('[DBStore] Wipe Supabase data warning:', err);
+    }
   }
 
   public async syncFromSupabase(): Promise<boolean> {
@@ -163,31 +169,31 @@ class DBStoreEngine {
 
       // 2. Sync Courses
       const { data: courses, error: cErr } = await client.from('courses').select('*');
-      if (!cErr && courses && courses.length > 0) {
+      if (!cErr && courses) {
         this.state.courses = courses as any;
       }
 
       // 3. Sync Sections
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
-      if (!sErr && sections && sections.length > 0) {
+      if (!sErr && sections) {
         this.state.sections = sections as any;
       }
 
       // 4. Sync Lessons
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
-      if (!lErr && lessons && lessons.length > 0) {
+      if (!lErr && lessons) {
         this.state.lessons = lessons as any;
       }
 
       // 5. Sync Enrollments
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
-      if (!eErr && enrollments && enrollments.length > 0) {
+      if (!eErr && enrollments) {
         this.state.enrollments = enrollments as any;
       }
 
       // 6. Sync Progress
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
-      if (!prErr && progress && progress.length > 0) {
+      if (!prErr && progress) {
         this.state.progress = progress as any;
       }
 
@@ -305,6 +311,7 @@ class DBStoreEngine {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      window.dispatchEvent(new Event('lexedu_db_updated'));
     } catch (err) {
       console.error('[DBStore] Error saving state:', err);
     }
@@ -972,7 +979,17 @@ class DBStoreEngine {
   }
 
   async resetToDemoData(): Promise<void> {
-    this.resetDemoData();
+    await this.wipeSupabaseData();
+
+    this.state.categories = [];
+    this.state.courses = [];
+    this.state.sections = [];
+    this.state.lessons = [];
+    this.state.attachments = [];
+    this.state.enrollments = [];
+    this.state.progress = [];
+    this.saveState();
+
     this.seedDemoData();
 
     const client = this.getSupabaseClient();
@@ -1301,14 +1318,26 @@ class DBStoreEngine {
   }
 
   // Level 5: Factory Reset
-  factoryReset(keepSuperAdmin: boolean = true) {
+  async factoryReset(keepSuperAdmin: boolean = true) {
     let superAdmin = keepSuperAdmin ? this.state.profiles.find((p) => p.role === 'SUPER_ADMIN') : undefined;
+
+    await this.wipeSupabaseData();
 
     this.state = getInitialState();
     if (superAdmin) {
       this.state.profiles.push(superAdmin);
     }
     this.saveState();
+
+    const client = this.getSupabaseClient();
+    if (client) {
+      try {
+        await this.uploadAllDataToSupabase();
+      } catch (err) {
+        console.warn('[DBStore] Error syncing factory reset to Supabase:', err);
+      }
+    }
+
     this.logAudit({ action: 'FACTORY RESET TOÀN BỘ HỆ THỐNG', action_level: 'DANGER' });
     return { success: true, message: 'Hệ thống đã được đưa về trạng thái cài đặt ban đầu.' };
   }
