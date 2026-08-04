@@ -109,14 +109,90 @@ class DBStoreEngine {
     this.state = this.loadState();
     if (!this.state.courses) {
       this.state.courses = [];
-      this.seedDemoData();
     }
 
-    // Background sync with Supabase if credentials exist
     if (typeof window !== 'undefined') {
       setTimeout(() => {
-        this.syncFromSupabase().catch((err) => console.warn('[DBStore] Background Supabase sync failed:', err));
-      }, 500);
+        this.initServerSync().catch((err) => console.warn('[DBStore] initServerSync failed:', err));
+      }, 100);
+    }
+  }
+
+  public async initServerSync() {
+    if (typeof window === 'undefined') return;
+    try {
+      // 1. Load server config (Supabase credentials)
+      const cfgRes = await fetch('/api/config').catch(() => null);
+      if (cfgRes && cfgRes.ok) {
+        const cfgData = await cfgRes.json().catch(() => null);
+        if (cfgData?.data) {
+          const { supabaseUrl, supabaseAnonKey, supabaseServiceKey } = cfgData.data;
+          if (supabaseUrl && supabaseAnonKey) {
+            localStorage.setItem('lexedu_supabase_url', supabaseUrl);
+            localStorage.setItem('lexedu_supabase_anon_key', supabaseAnonKey);
+            if (supabaseServiceKey) {
+              localStorage.setItem('lexedu_supabase_service_key', supabaseServiceKey);
+            }
+            (window as any).__LEXEDU_ENV__ = {
+              ...((window as any).__LEXEDU_ENV__ || {}),
+              VITE_SUPABASE_URL: supabaseUrl,
+              VITE_SUPABASE_ANON_KEY: supabaseAnonKey,
+            };
+          }
+        }
+      }
+
+      // 2. Load database state from central server file
+      const dbRes = await fetch('/api/db').catch(() => null);
+      if (dbRes && dbRes.ok) {
+        const dbData = await dbRes.json().catch(() => null);
+        if (dbData?.data && typeof dbData.data === 'object' && Array.isArray(dbData.data.courses)) {
+          const serverState: LocalDBState = dbData.data;
+          const localCoursesCount = Array.isArray(this.state.courses) ? this.state.courses.length : 0;
+          // Prefer server state if server has courses or local state is empty
+          if (serverState.courses.length > 0 || localCoursesCount === 0) {
+            this.state = {
+              ...serverState,
+              setupStatus: { ...this.state.setupStatus, ...serverState.setupStatus },
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+            window.dispatchEvent(new Event('lexedu_db_updated'));
+          }
+        }
+      }
+
+      // 3. Sync from Supabase if connected
+      await this.syncFromSupabase();
+    } catch (err) {
+      console.warn('[DBStore] initServerSync warning:', err);
+    }
+  }
+
+  public async saveSupabaseConfig(url: string, anonKey: string, serviceKey?: string) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lexedu_supabase_url', url.trim());
+      localStorage.setItem('lexedu_supabase_anon_key', anonKey.trim());
+      if (serviceKey) {
+        localStorage.setItem('lexedu_supabase_service_key', serviceKey.trim());
+      }
+      (window as any).__LEXEDU_ENV__ = {
+        ...((window as any).__LEXEDU_ENV__ || {}),
+        VITE_SUPABASE_URL: url.trim(),
+        VITE_SUPABASE_ANON_KEY: anonKey.trim(),
+      };
+    }
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl: url.trim(),
+          supabaseAnonKey: anonKey.trim(),
+          supabaseServiceKey: serviceKey?.trim() || '',
+        }),
+      });
+    } catch (err) {
+      console.warn('[DBStore] saveSupabaseConfig server error:', err);
     }
   }
 
@@ -167,45 +243,87 @@ class DBStoreEngine {
           }
         });
         this.state.profiles = merged;
+      } else if (!pErr && (!profiles || profiles.length === 0) && this.state.profiles.length > 0) {
+        const cleanProfiles = this.state.profiles.map((p) => ({
+          id: p.id,
+          full_name: p.full_name,
+          email: p.email.trim().toLowerCase(),
+          role: p.role,
+          status: p.is_blocked ? 'BLOCKED' : (p.status || 'ACTIVE'),
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+        }));
+        await client.from('profiles').upsert(cleanProfiles).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload profiles warning:', error.message);
+        });
       }
 
-      // 2. Sync Courses
+      // 2. Sync Categories
+      const { data: categories, error: catErr } = await client.from('categories').select('*');
+      if (!catErr && categories && categories.length > 0) {
+        this.state.categories = categories as any;
+      } else if (!catErr && (!categories || categories.length === 0) && this.state.categories.length > 0) {
+        const cleanCat = this.state.categories.map(({ courses_count, ...c }: any) => c);
+        await client.from('categories').upsert(cleanCat).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload categories warning:', error.message);
+        });
+      }
+
+      // 3. Sync Courses
       const { data: courses, error: cErr } = await client.from('courses').select('*');
-      if (!cErr && courses) {
+      if (!cErr && courses && courses.length > 0) {
         this.state.courses = courses as any;
+      } else if (!cErr && (!courses || courses.length === 0) && this.state.courses.length > 0) {
+        const cleanCourses = this.state.courses.map(({ category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...c }: any) => c);
+        await client.from('courses').upsert(cleanCourses).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload courses warning:', error.message);
+        });
       }
 
-      // 3. Sync Sections
+      // 4. Sync Sections
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
-      if (!sErr && sections) {
+      if (!sErr && sections && sections.length > 0) {
         this.state.sections = sections as any;
+      } else if (!sErr && (!sections || sections.length === 0) && this.state.sections.length > 0) {
+        const cleanSections = this.state.sections.map(({ lessons, ...s }: any) => s);
+        await client.from('course_sections').upsert(cleanSections).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload sections warning:', error.message);
+        });
       }
 
-      // 4. Sync Lessons
+      // 5. Sync Lessons
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
-      if (!lErr && lessons) {
+      if (!lErr && lessons && lessons.length > 0) {
         this.state.lessons = lessons as any;
+      } else if (!lErr && (!lessons || lessons.length === 0) && this.state.lessons.length > 0) {
+        const cleanLessons = this.state.lessons.map(({ attachments, ...l }: any) => l);
+        await client.from('lessons').upsert(cleanLessons).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload lessons warning:', error.message);
+        });
       }
 
-      // 5. Sync Enrollments
+      // 6. Sync Enrollments
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
-      if (!eErr && enrollments) {
+      if (!eErr && enrollments && enrollments.length > 0) {
         this.state.enrollments = enrollments as any;
+      } else if (!eErr && (!enrollments || enrollments.length === 0) && this.state.enrollments.length > 0) {
+        const cleanEnrollments = this.state.enrollments.map(({ course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...e }: any) => e);
+        await client.from('enrollments').upsert(cleanEnrollments).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload enrollments warning:', error.message);
+        });
       }
 
-      // 6. Sync Progress
+      // 7. Sync Progress
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
-      if (!prErr && progress) {
+      if (!prErr && progress && progress.length > 0) {
         this.state.progress = progress as any;
+      } else if (!prErr && (!progress || progress.length === 0) && this.state.progress.length > 0) {
+        await client.from('lesson_progress').upsert(this.state.progress).then(({ error }) => {
+          if (error) console.warn('[Supabase Sync] upload progress warning:', error.message);
+        });
       }
 
       this.saveState();
-
-      // If Supabase courses table was completely empty, seed data to Supabase
-      if (!courses || courses.length === 0) {
-        await this.uploadAllDataToSupabase();
-      }
-
       return true;
     } catch (err) {
       console.warn('[DBStore] Error during Supabase sync:', err);
@@ -314,6 +432,12 @@ class DBStoreEngine {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
       window.dispatchEvent(new Event('lexedu_db_updated'));
+
+      fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.state),
+      }).catch((err) => console.warn('[DBStore] /api/db sync error:', err));
     } catch (err) {
       console.error('[DBStore] Error saving state:', err);
     }

@@ -1,6 +1,8 @@
 import { createClient as createSupabaseClient, SupabaseClient } from '@supabase/supabase-js';
 
 let supabaseClientInstance: SupabaseClient | null = null;
+let lastClientUrl: string | undefined;
+let lastClientKey: string | undefined;
 
 export function getSupabaseCredentials(): { url: string | undefined; anonKey: string | undefined } {
   let url: string | undefined;
@@ -49,8 +51,10 @@ export function getSupabaseBrowserClient(customUrl?: string, customAnonKey?: str
     return null;
   }
 
-  if (!supabaseClientInstance || customUrl) {
+  if (!supabaseClientInstance || url !== lastClientUrl || key !== lastClientKey || customUrl) {
     try {
+      lastClientUrl = url;
+      lastClientKey = key;
       supabaseClientInstance = createSupabaseClient(url, key, {
         auth: {
           persistSession: true,

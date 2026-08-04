@@ -2,6 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseCredentials } from './client';
 
 let adminClientInstance: SupabaseClient | null = null;
+let lastAdminUrl: string | undefined;
+let lastAdminKey: string | undefined;
 
 export function getSupabaseAdminClient(customUrl?: string, customServiceKey?: string): SupabaseClient | null {
   const creds = getSupabaseCredentials();
@@ -20,15 +22,18 @@ export function getSupabaseAdminClient(customUrl?: string, customServiceKey?: st
     serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
   }
   if (!serviceKey && typeof window !== 'undefined') {
-    serviceKey = localStorage.getItem('lexedu_supabase_service_key') || creds.anonKey;
+    serviceKey = (window as any).__LEXEDU_ENV__?.SUPABASE_SERVICE_ROLE_KEY ||
+                 localStorage.getItem('lexedu_supabase_service_key') || creds.anonKey;
   }
 
   if (!url || !serviceKey) {
     return null;
   }
 
-  if (!adminClientInstance || customUrl) {
+  if (!adminClientInstance || url !== lastAdminUrl || serviceKey !== lastAdminKey || customUrl) {
     try {
+      lastAdminUrl = url;
+      lastAdminKey = serviceKey;
       adminClientInstance = createClient(url, serviceKey, {
         auth: {
           autoRefreshToken: false,
