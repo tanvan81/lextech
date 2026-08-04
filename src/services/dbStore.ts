@@ -211,6 +211,18 @@ class DBStoreEngine {
       await client.from('courses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await client.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       await client.from('profiles').delete().neq('role', 'SUPER_ADMIN');
+
+      // In case DELETE on profiles was restricted by Supabase RLS, scramble email & mark DELETED for non-superadmins
+      const { data: nonAdmins } = await client.from('profiles').select('id, email').neq('role', 'SUPER_ADMIN');
+      if (nonAdmins && nonAdmins.length > 0) {
+        for (const p of nonAdmins) {
+          await client.from('profiles').update({
+            status: 'DELETED',
+            email: `deleted_${Date.now()}_${p.id}`,
+            updated_at: new Date().toISOString(),
+          }).eq('id', p.id);
+        }
+      }
     } catch (err) {
       console.warn('[DBStore] Wipe Supabase data warning:', err);
     }
@@ -224,8 +236,21 @@ class DBStoreEngine {
       // 1. Sync Profiles
       const { data: profiles, error: pErr } = await client.from('profiles').select('*');
       if (!pErr && profiles && profiles.length > 0) {
+        const validProfiles = profiles.filter((p: any) => p.status !== 'DELETED' && !p.email.startsWith('deleted_'));
+        const hasStudentsLocally = this.state.profiles.some((p) => p.role !== 'SUPER_ADMIN');
+
         const merged = [...this.state.profiles];
-        profiles.forEach((p: any) => {
+        validProfiles.forEach((p: any) => {
+          // If local data was reset and has no student profiles, skip re-importing old orphaned student profiles
+          if (!hasStudentsLocally && p.role !== 'SUPER_ADMIN') {
+            client.from('profiles').update({
+              status: 'DELETED',
+              email: `deleted_${Date.now()}_${p.id}`,
+              updated_at: new Date().toISOString(),
+            }).eq('id', p.id).then(() => {});
+            return;
+          }
+
           const idx = merged.findIndex((m) => m.id === p.id || m.email.trim().toLowerCase() === p.email.trim().toLowerCase());
           if (idx >= 0) {
             merged[idx] = { ...merged[idx], ...p };
@@ -392,7 +417,10 @@ class DBStoreEngine {
     const cleanEmail = email.trim().toLowerCase();
     
     // First check local memory
-    let profile = this.state.profiles.find((p) => p.email.trim().toLowerCase() === cleanEmail);
+    let profile = this.state.profiles.find(
+      (p) => p.email.trim().toLowerCase() === cleanEmail && p.status !== 'DELETED'
+    );
+    if (profile) return profile;
 
     // If Supabase client exists, check live Supabase database as well
     const client = this.getSupabaseClient();
@@ -400,6 +428,23 @@ class DBStoreEngine {
       try {
         const { data, error } = await client.from('profiles').select('*').eq('email', cleanEmail).maybeSingle();
         if (!error && data) {
+          if (data.status === 'DELETED' || (data.email && data.email.startsWith('deleted_'))) {
+            return undefined;
+          }
+
+          // If local state has been reset (no student profiles) or this profile is not in local state,
+          // check if local state has only super admins (meaning student data was wiped/reset)
+          const hasStudentsLocally = this.state.profiles.some((p) => p.role !== 'SUPER_ADMIN');
+          if (!hasStudentsLocally && data.role !== 'SUPER_ADMIN') {
+            // This is an orphaned profile from before reset -> clean it up in Supabase so registration succeeds
+            client.from('profiles').update({
+              status: 'DELETED',
+              email: `deleted_${Date.now()}_${data.id}`,
+              updated_at: new Date().toISOString(),
+            }).eq('id', data.id).then(() => {});
+            return undefined;
+          }
+
           const spProfile: UserProfile = {
             id: data.id,
             full_name: data.full_name,
@@ -925,6 +970,11 @@ class DBStoreEngine {
       client.from('profiles').delete().eq('id', userId).then(({ error }) => {
         if (error) console.warn('[Supabase Sync] deleteProfile warning:', error.message);
       });
+      client.from('profiles').update({
+        status: 'DELETED',
+        email: `deleted_${Date.now()}_${userId}`,
+        updated_at: new Date().toISOString(),
+      }).eq('id', userId).then(() => {});
       client.from('enrollments').delete().eq('user_id', userId).then(() => {});
       client.from('lesson_progress').delete().eq('user_id', userId).then(() => {});
     }

@@ -117,7 +117,7 @@ export class AuthService {
   async register(fullName: string, email: string, pass: string): Promise<UserProfile> {
     const cleanEmail = (email || '').trim().toLowerCase();
     const existing = await dbStore.getProfileByEmailAsync(cleanEmail);
-    if (existing) {
+    if (existing && existing.status !== 'DELETED') {
       throw new Error('Email này đã được đăng ký trên hệ thống. Vui lòng dùng email khác hoặc đăng nhập.');
     }
 
