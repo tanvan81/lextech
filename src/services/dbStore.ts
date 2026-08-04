@@ -432,11 +432,14 @@ class DBStoreEngine {
             return undefined;
           }
 
-          // If local state has been reset (no student profiles) or this profile is not in local state,
-          // check if local state has only super admins (meaning student data was wiped/reset)
-          const hasStudentsLocally = this.state.profiles.some((p) => p.role !== 'SUPER_ADMIN');
-          if (!hasStudentsLocally && data.role !== 'SUPER_ADMIN') {
-            // This is an orphaned profile from before reset -> clean it up in Supabase so registration succeeds
+          // Check if this profile exists in active local state.
+          // If local active state does NOT have this profile (e.g. after reset or deletion),
+          // treat it as an orphaned row from a reset session and return undefined so registration can succeed.
+          const localMatch = this.state.profiles.find(
+            (p) => p.id === data.id || p.email.trim().toLowerCase() === cleanEmail
+          );
+          if (!localMatch) {
+            // Asynchronously update stale row in Supabase so it doesn't conflict
             client.from('profiles').update({
               status: 'DELETED',
               email: `deleted_${Date.now()}_${data.id}`,
@@ -456,7 +459,6 @@ class DBStoreEngine {
             created_at: data.created_at || new Date().toISOString(),
             updated_at: data.updated_at || new Date().toISOString(),
           };
-          this.saveProfile(spProfile);
           return spProfile;
         }
       } catch (err) {
@@ -464,7 +466,7 @@ class DBStoreEngine {
       }
     }
 
-    return profile;
+    return undefined;
   }
 
   private loadState(): LocalDBState {
