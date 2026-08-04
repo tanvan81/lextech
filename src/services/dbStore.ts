@@ -118,16 +118,29 @@ class DBStoreEngine {
     }
   }
 
+  private syncTimer: any = null;
+
+  public startAutoSync() {
+    if (typeof window === 'undefined' || this.syncTimer) return;
+    this.syncTimer = setInterval(() => {
+      this.syncFromSupabase();
+    }, 8000);
+  }
+
   public async initServerSync() {
     if (typeof window === 'undefined') return;
     try {
       // 1. Load server config (Supabase credentials)
       const cfgRes = await fetch('/api/config').catch(() => null);
+      let suUrl = '';
+      let suKey = '';
       if (cfgRes && cfgRes.ok) {
         const cfgData = await cfgRes.json().catch(() => null);
         if (cfgData?.data) {
           const { supabaseUrl, supabaseAnonKey, supabaseServiceKey } = cfgData.data;
           if (supabaseUrl && supabaseAnonKey) {
+            suUrl = supabaseUrl;
+            suKey = supabaseAnonKey;
             localStorage.setItem('lexedu_supabase_url', supabaseUrl);
             localStorage.setItem('lexedu_supabase_anon_key', supabaseAnonKey);
             if (supabaseServiceKey) {
@@ -142,29 +155,44 @@ class DBStoreEngine {
         }
       }
 
-      // 2. Load database state from central server file
+      // 2. If Supabase is connected, sync directly from Supabase (Supabase is Single Source of Truth)
+      const client = (suUrl && suKey) ? getSupabaseBrowserClient(suUrl, suKey) : this.getSupabaseClient();
+      if (client) {
+        const synced = await this.syncFromSupabase();
+        this.startAutoSync();
+        if (synced) return;
+      }
+
+      // 3. Fallback: Load database state from central server file if Supabase is not connected
       const dbRes = await fetch('/api/db').catch(() => null);
       if (dbRes && dbRes.ok) {
         const dbData = await dbRes.json().catch(() => null);
         if (dbData?.data && typeof dbData.data === 'object' && Array.isArray(dbData.data.courses)) {
-          const serverState: LocalDBState = dbData.data;
-          const localCoursesCount = Array.isArray(this.state.courses) ? this.state.courses.length : 0;
-          // Prefer server state if server has courses or local state is empty
-          if (serverState.courses.length > 0 || localCoursesCount === 0) {
-            this.state = {
-              ...serverState,
-              setupStatus: { ...this.state.setupStatus, ...serverState.setupStatus },
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
-            window.dispatchEvent(new Event('lexedu_db_updated'));
-          }
+          this.state = {
+            ...dbData.data,
+            setupStatus: { ...this.state.setupStatus, ...dbData.data.setupStatus },
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+          window.dispatchEvent(new Event('lexedu_db_updated'));
         }
       }
-
-      // 3. Sync from Supabase if connected
-      await this.syncFromSupabase();
     } catch (err) {
       console.warn('[DBStore] initServerSync warning:', err);
+    }
+  }
+
+  public async purgeLocalCacheAndSyncSupabase(): Promise<{ success: boolean; message: string }> {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+    const client = this.getSupabaseClient();
+    if (client) {
+      await this.syncFromSupabase();
+      return { success: true, message: 'Đã xóa toàn bộ cache trình duyệt và tải dữ liệu mới nhất trực tiếp từ Supabase thành công.' };
+    } else {
+      this.state = getInitialState();
+      this.saveState();
+      return { success: true, message: 'Đã xóa bộ nhớ cache trình duyệt.' };
     }
   }
 
@@ -198,6 +226,36 @@ class DBStoreEngine {
 
   public getSupabaseClient() {
     return getSupabaseAdminClient() || getSupabaseBrowserClient();
+  }
+
+  public async inspectSupabaseData(): Promise<{
+    profiles: any[];
+    categories: any[];
+    courses: any[];
+    enrollments: any[];
+    error?: string;
+  }> {
+    const client = this.getSupabaseClient();
+    if (!client) {
+      return { profiles: [], categories: [], courses: [], enrollments: [], error: 'Chưa cấu hình kết nối Supabase' };
+    }
+    try {
+      const [pRes, cRes, crRes, eRes] = await Promise.all([
+        client.from('profiles').select('*'),
+        client.from('categories').select('*'),
+        client.from('courses').select('*'),
+        client.from('enrollments').select('*'),
+      ]);
+      return {
+        profiles: pRes.data || [],
+        categories: cRes.data || [],
+        courses: crRes.data || [],
+        enrollments: eRes.data || [],
+        error: pRes.error?.message || cRes.error?.message || crRes.error?.message || eRes.error?.message,
+      };
+    } catch (err: any) {
+      return { profiles: [], categories: [], courses: [], enrollments: [], error: err.message || String(err) };
+    }
   }
 
   public async wipeSupabaseData(): Promise<void> {
@@ -260,38 +318,38 @@ class DBStoreEngine {
 
       // 2. Sync Categories (Supabase is SSOT)
       const { data: categories, error: catErr } = await client.from('categories').select('*');
-      if (!catErr && categories) {
-        this.state.categories = categories as any;
+      if (!catErr) {
+        this.state.categories = (categories as any) || [];
       }
 
       // 3. Sync Courses (Supabase is SSOT)
       const { data: courses, error: cErr } = await client.from('courses').select('*');
-      if (!cErr && courses) {
-        this.state.courses = courses as any;
+      if (!cErr) {
+        this.state.courses = (courses as any) || [];
       }
 
       // 4. Sync Sections (Supabase is SSOT)
       const { data: sections, error: sErr } = await client.from('course_sections').select('*');
-      if (!sErr && sections) {
-        this.state.sections = sections as any;
+      if (!sErr) {
+        this.state.sections = (sections as any) || [];
       }
 
       // 5. Sync Lessons (Supabase is SSOT)
       const { data: lessons, error: lErr } = await client.from('lessons').select('*');
-      if (!lErr && lessons) {
-        this.state.lessons = lessons as any;
+      if (!lErr) {
+        this.state.lessons = (lessons as any) || [];
       }
 
       // 6. Sync Enrollments (Supabase is SSOT)
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
-      if (!eErr && enrollments) {
-        this.state.enrollments = enrollments as any;
+      if (!eErr) {
+        this.state.enrollments = (enrollments as any) || [];
       }
 
       // 7. Sync Progress (Supabase is SSOT)
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
-      if (!prErr && progress) {
-        this.state.progress = progress as any;
+      if (!prErr) {
+        this.state.progress = (progress as any) || [];
       }
 
       this.saveState();
