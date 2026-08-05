@@ -5,6 +5,7 @@ import { dbStore } from '../../services/dbStore';
 import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
+import { generateUUID } from '../../utils/uuid';
 
 interface CourseFormPageProps {
   courseId?: string;
@@ -59,7 +60,7 @@ export const CourseFormPage: React.FC<CourseFormPageProps> = ({ courseId, onNavi
     if (!title.trim() || !slug.trim()) return;
 
     const courseData: Course = {
-      id: existingCourse?.id || 'crs-' + Math.random().toString(36).substring(2, 10),
+      id: existingCourse?.id || generateUUID(),
       category_id: categoryId || (categories[0]?.id || ''),
       title: title.trim(),
       slug: slug.trim(),

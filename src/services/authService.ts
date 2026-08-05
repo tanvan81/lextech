@@ -119,12 +119,12 @@ export class AuthService {
     
     // Check if email exists in active local state
     const localExisting = dbStore.getProfileByEmail(cleanEmail);
-    if (localExisting && localExisting.status !== 'DELETED') {
+    if (localExisting && (localExisting.status as any) !== 'DELETED') {
       throw new Error('Email này đã được đăng ký trên hệ thống. Vui lòng dùng email khác hoặc đăng nhập.');
     }
 
     const existingAsync = await dbStore.getProfileByEmailAsync(cleanEmail);
-    if (existingAsync && existingAsync.status !== 'DELETED') {
+    if (existingAsync && (existingAsync.status as any) !== 'DELETED') {
       throw new Error('Email này đã được đăng ký trên hệ thống. Vui lòng dùng email khác hoặc đăng nhập.');
     }
 

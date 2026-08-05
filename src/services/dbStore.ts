@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { getSupabaseBrowserClient, getSupabaseCredentials } from '../lib/supabase/client';
 import { getSupabaseAdminClient } from '../lib/supabase/admin';
+import { toUUID, generateUUID } from '../utils/uuid';
 
 const STORAGE_KEY = 'lexedu_db_v3_store';
 
@@ -322,7 +323,7 @@ class DBStoreEngine {
         if (categories.length > 0) {
           this.state.categories = categories as any;
         } else if (this.state.categories.length > 0) {
-          await client.from('categories').upsert(this.state.categories).catch(() => {});
+          await this.uploadAllDataToSupabase().catch(() => {});
         }
       }
 
@@ -330,10 +331,17 @@ class DBStoreEngine {
       const { data: courses, error: cErr } = await client.from('courses').select('*');
       if (!cErr && Array.isArray(courses)) {
         if (courses.length > 0) {
-          this.state.courses = courses as any;
+          // Merge local courses that are not yet on Supabase
+          const mergedCourses = [...courses] as any;
+          this.state.courses.forEach((lc) => {
+            if (!mergedCourses.some((sc: any) => sc.id === lc.id || sc.slug === lc.slug)) {
+              mergedCourses.push(lc);
+            }
+          });
+          this.state.courses = mergedCourses;
         } else if (this.state.courses.length > 0) {
-          // Auto push seed data to Supabase if Supabase table is empty
-          this.uploadAllDataToSupabase().catch(() => {});
+          // Auto push local data to Supabase if Supabase table is empty
+          await this.uploadAllDataToSupabase().catch(() => {});
         }
       }
 
@@ -356,13 +364,17 @@ class DBStoreEngine {
       // 6. Sync Enrollments (Supabase is SSOT)
       const { data: enrollments, error: eErr } = await client.from('enrollments').select('*');
       if (!eErr && Array.isArray(enrollments)) {
-        this.state.enrollments = enrollments as any;
+        if (enrollments.length > 0) {
+          this.state.enrollments = enrollments as any;
+        }
       }
 
       // 7. Sync Progress (Supabase is SSOT)
       const { data: progress, error: prErr } = await client.from('lesson_progress').select('*');
       if (!prErr && Array.isArray(progress)) {
-        this.state.progress = progress as any;
+        if (progress.length > 0) {
+          this.state.progress = progress as any;
+        }
       }
 
       this.saveState();
@@ -380,33 +392,109 @@ class DBStoreEngine {
     }
 
     try {
-      const cleanCategories = this.state.categories;
-      const cleanProfiles = this.state.profiles.map((p) => ({
-        id: p.id,
-        full_name: p.full_name,
-        email: p.email.trim().toLowerCase(),
-        role: p.role,
-        status: p.is_blocked ? 'BLOCKED' : (p.status || 'ACTIVE'),
-        created_at: p.created_at,
-        updated_at: p.updated_at,
+      // Convert all local IDs to valid 36-char UUID v4 format for Supabase compatibility
+      const cleanCategories = this.state.categories.map((c) => ({
+        ...c,
+        id: toUUID(c.id) || generateUUID(),
       }));
 
-      const cleanCourses = this.state.courses.map(({ category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...c }: any) => c);
-      const cleanSections = this.state.sections.map(({ lessons, ...s }: any) => s);
-      const cleanLessons = this.state.lessons;
-      const cleanEnrollments = this.state.enrollments.map(({ course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...e }: any) => e);
-      const cleanProgress = this.state.progress;
+      const cleanProfiles = this.state.profiles.map((p) => ({
+        id: toUUID(p.id) || generateUUID(),
+        full_name: p.full_name || 'Học viên',
+        email: p.email.trim().toLowerCase(),
+        role: p.role || 'STUDENT',
+        status: p.is_blocked ? 'BLOCKED' : (p.status || 'ACTIVE'),
+        created_at: p.created_at || new Date().toISOString(),
+        updated_at: p.updated_at || new Date().toISOString(),
+      }));
 
-      if (cleanCategories.length > 0) await client.from('categories').upsert(cleanCategories);
-      if (cleanProfiles.length > 0) await client.from('profiles').upsert(cleanProfiles);
-      if (cleanCourses.length > 0) await client.from('courses').upsert(cleanCourses);
-      if (cleanSections.length > 0) await client.from('course_sections').upsert(cleanSections);
-      if (cleanLessons.length > 0) await client.from('lessons').upsert(cleanLessons);
-      if (cleanEnrollments.length > 0) await client.from('enrollments').upsert(cleanEnrollments);
-      if (cleanProgress.length > 0) await client.from('lesson_progress').upsert(cleanProgress);
+      const cleanCourses = this.state.courses.map((c: any) => {
+        const { category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...rest } = c;
+        return {
+          ...rest,
+          id: toUUID(c.id) || generateUUID(),
+          category_id: toUUID(c.category_id),
+          created_by: toUUID(c.created_by),
+        };
+      });
+
+      const cleanSections = this.state.sections.map((s: any) => {
+        const { lessons, ...rest } = s;
+        return {
+          ...rest,
+          id: toUUID(s.id) || generateUUID(),
+          course_id: toUUID(s.course_id) || generateUUID(),
+        };
+      });
+
+      const cleanLessons = this.state.lessons.map((l: any) => {
+        const { attachments, ...rest } = l;
+        return {
+          ...rest,
+          id: toUUID(l.id) || generateUUID(),
+          section_id: toUUID(l.section_id) || generateUUID(),
+        };
+      });
+
+      const cleanEnrollments = this.state.enrollments.map((e: any) => {
+        const { course_title, course_slug, course_thumbnail, user_name, user_email, user_avatar, ...rest } = e;
+        return {
+          ...rest,
+          id: toUUID(e.id) || generateUUID(),
+          user_id: toUUID(e.user_id) || generateUUID(),
+          course_id: toUUID(e.course_id) || generateUUID(),
+          last_lesson_id: toUUID(e.last_lesson_id),
+        };
+      });
+
+      const cleanProgress = this.state.progress.map((pr: any) => ({
+        ...pr,
+        id: toUUID(pr.id) || generateUUID(),
+        user_id: toUUID(pr.user_id) || generateUUID(),
+        lesson_id: toUUID(pr.lesson_id) || generateUUID(),
+      }));
+
+      if (cleanCategories.length > 0) {
+        const { error } = await client.from('categories').upsert(cleanCategories);
+        if (error) throw new Error(`Bảng categories: ${error.message}`);
+      }
+      if (cleanProfiles.length > 0) {
+        const { error } = await client.from('profiles').upsert(cleanProfiles);
+        if (error) throw new Error(`Bảng profiles: ${error.message}`);
+      }
+      if (cleanCourses.length > 0) {
+        const { error } = await client.from('courses').upsert(cleanCourses);
+        if (error) throw new Error(`Bảng courses: ${error.message}`);
+      }
+      if (cleanSections.length > 0) {
+        const { error } = await client.from('course_sections').upsert(cleanSections);
+        if (error) throw new Error(`Bảng course_sections: ${error.message}`);
+      }
+      if (cleanLessons.length > 0) {
+        const { error } = await client.from('lessons').upsert(cleanLessons);
+        if (error) throw new Error(`Bảng lessons: ${error.message}`);
+      }
+      if (cleanEnrollments.length > 0) {
+        const { error } = await client.from('enrollments').upsert(cleanEnrollments);
+        if (error) throw new Error(`Bảng enrollments: ${error.message}`);
+      }
+      if (cleanProgress.length > 0) {
+        const { error } = await client.from('lesson_progress').upsert(cleanProgress);
+        if (error) throw new Error(`Bảng lesson_progress: ${error.message}`);
+      }
+
+      // Update local state with sanitized UUIDs
+      this.state.categories = cleanCategories as any;
+      this.state.profiles = cleanProfiles as any;
+      this.state.courses = cleanCourses as any;
+      this.state.sections = cleanSections as any;
+      this.state.lessons = cleanLessons as any;
+      this.state.enrollments = cleanEnrollments as any;
+      this.state.progress = cleanProgress as any;
+      this.saveState();
 
       this.logAudit({ action: 'Đồng bộ toàn bộ dữ liệu hệ thống lên Supabase thành công', action_level: 'INFO' });
-      return { success: true, message: 'Đã đồng bộ toàn bộ khóa học, bài học và tài khoản lên cơ sở dữ liệu Supabase!' };
+      return { success: true, message: 'Đã đồng bộ thành công toàn bộ khóa học, bài học và tài khoản lên cơ sở dữ liệu Supabase!' };
     } catch (err: any) {
       console.error('[DBStore] Upload to Supabase failed:', err);
       throw new Error(err?.message || 'Lỗi khi upload dữ liệu lên Supabase.');
@@ -419,7 +507,7 @@ class DBStoreEngine {
     
     // First check local memory
     let profile = this.state.profiles.find(
-      (p) => p.email.trim().toLowerCase() === cleanEmail && p.status !== 'DELETED'
+      (p) => p.email.trim().toLowerCase() === cleanEmail && (p.status as any) !== 'DELETED'
     );
     if (profile) return profile;
 
@@ -648,13 +736,24 @@ class DBStoreEngine {
   }
 
   saveCourse(course: Course): Course {
-    const idx = this.state.courses.findIndex((c) => c.id === course.id);
-    let updated: Course;
+    const courseId = toUUID(course.id) || generateUUID();
+    const catId = toUUID(course.category_id);
+    const createdBy = toUUID(course.created_by);
+
+    const updated: Course = {
+      ...course,
+      id: courseId,
+      category_id: catId || undefined,
+      created_by: createdBy || undefined,
+      status: course.status || 'PUBLISHED',
+      updated_at: new Date().toISOString(),
+    };
+
+    const idx = this.state.courses.findIndex((c) => c.id === course.id || c.id === courseId);
     if (idx >= 0) {
-      updated = { ...course, updated_at: new Date().toISOString() };
       this.state.courses[idx] = updated;
     } else {
-      updated = { ...course, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      updated.created_at = course.created_at || new Date().toISOString();
       this.state.courses.push(updated);
     }
     this.saveState();
@@ -662,8 +761,11 @@ class DBStoreEngine {
     const client = this.getSupabaseClient();
     if (client) {
       const { category_name, sections_count, lessons_count, students_count, user_enrollment_status, user_progress_percent, ...cleanC }: any = updated;
+      cleanC.category_id = catId;
+      cleanC.created_by = createdBy;
       client.from('courses').upsert(cleanC).then(({ error }) => {
         if (error) console.warn('[Supabase Sync] saveCourse warning:', error.message);
+        else console.log('[Supabase Sync] saveCourse success:', courseId);
       });
     }
 

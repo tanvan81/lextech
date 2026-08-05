@@ -547,7 +547,7 @@ export const SystemCenter: React.FC<SystemCenterProps> = ({ tab = 'overview', on
                   <Database className="w-4 h-4 text-amber-700" />
                   <span>Khởi Tạo Bảng Supabase (Nếu Supabase Dashboard báo "No tables or views")</span>
                 </div>
-                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">Quan trọng</Badge>
+                <Badge variant="warning" className="bg-amber-100 text-amber-800 border-amber-300">Quan trọng</Badge>
               </div>
               <p className="text-amber-800 text-xs leading-relaxed">
                 Khi dự án Supabase mới tạo chưa có cấu trúc bảng (như màn hình Supabase Table Editor hiển thị <em>"No tables or views"</em>), bạn chỉ cần thực hiện 3 bước đơn giản sau:

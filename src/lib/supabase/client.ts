@@ -42,10 +42,23 @@ export function getSupabaseCredentials(): { url: string | undefined; anonKey: st
   return { url, anonKey };
 }
 
+export function formatSupabaseUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl || typeof rawUrl !== 'string') return undefined;
+  let trimmed = rawUrl.trim();
+  if (!trimmed) return undefined;
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    trimmed = 'https://' + trimmed;
+  }
+  return trimmed.replace(/\/+$/, '');
+}
+
 export function getSupabaseBrowserClient(customUrl?: string, customAnonKey?: string): SupabaseClient | null {
   const creds = getSupabaseCredentials();
-  const url = customUrl || creds.url;
-  const key = customAnonKey || creds.anonKey;
+  const rawUrl = customUrl || creds.url;
+  const rawKey = customAnonKey || creds.anonKey;
+
+  const url = formatSupabaseUrl(rawUrl);
+  const key = rawKey ? rawKey.trim() : undefined;
 
   if (!url || !key) {
     return null;
